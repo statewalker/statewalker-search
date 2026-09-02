@@ -15,9 +15,9 @@
     "url": "git+ssh://git@github.com/statewalker/statewalker-indexer.git"
   },
   "scripts": {
-    "build": "turbo run build",
+    "build": "pnpm -r run build",
     "test": "pnpm -r --filter \"./packages/*\" run test",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "pnpm -r run typecheck",
     "lint": "biome check --write .",
     "lint:check": "biome check .",
     "format": "biome format --write .",
