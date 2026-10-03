@@ -42,7 +42,6 @@
     "@joplin/turndown-plugin-gfm": "catalog:"
   },
   "devDependencies": {
-    "@types/markdown-it": "catalog:",
     "@types/turndown": "catalog:",
     "rimraf": "catalog:",
     "tsdown": "catalog:",
