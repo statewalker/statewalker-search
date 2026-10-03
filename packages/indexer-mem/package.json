@@ -32,9 +32,9 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@statewalker/indexer-api": "workspace:*",
-    "@statewalker/indexer-core": "workspace:*",
-    "@statewalker/indexer-vector": "workspace:*",
+    "@statewalker/indexer-api": "workspace:^",
+    "@statewalker/indexer-core": "workspace:^",
+    "@statewalker/indexer-vector": "workspace:^",
     "@uwdata/flechette": "catalog:"
   },
   "devDependencies": {

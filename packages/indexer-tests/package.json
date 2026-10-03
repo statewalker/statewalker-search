@@ -27,10 +27,10 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@statewalker/indexer-api": "workspace:*",
-    "@statewalker/indexer-fulltext": "workspace:*",
-    "@statewalker/indexer-search": "workspace:*",
-    "@statewalker/indexer-vector": "workspace:*"
+    "@statewalker/indexer-api": "workspace:^",
+    "@statewalker/indexer-fulltext": "workspace:^",
+    "@statewalker/indexer-search": "workspace:^",
+    "@statewalker/indexer-vector": "workspace:^"
   },
   "peerDependencies": {
     "vitest": "catalog:peers"

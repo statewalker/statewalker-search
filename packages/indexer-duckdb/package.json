@@ -32,15 +32,15 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@statewalker/indexer-api": "workspace:*",
-    "@statewalker/indexer-core": "workspace:*",
-    "@statewalker/indexer-fulltext": "workspace:*",
-    "@statewalker/indexer-vector": "workspace:*",
+    "@statewalker/indexer-api": "workspace:^",
+    "@statewalker/indexer-core": "workspace:^",
+    "@statewalker/indexer-fulltext": "workspace:^",
+    "@statewalker/indexer-vector": "workspace:^",
     "@statewalker/db-api": "catalog:"
   },
   "devDependencies": {
     "@statewalker/db-duckdb-node": "catalog:",
-    "@statewalker/indexer-tests": "workspace:*",
+    "@statewalker/indexer-tests": "workspace:^",
     "rimraf": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
