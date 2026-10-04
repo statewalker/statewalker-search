@@ -34,15 +34,15 @@
     "format": "biome format --write ."
   },
   "dependencies": {
+    "@joplin/turndown-plugin-gfm": "catalog:",
+    "@types/turndown": "catalog:",
     "exceljs": "catalog:",
     "mammoth": "catalog:",
     "markdown-it": "catalog:",
-    "unpdf": "catalog:",
     "turndown": "catalog:",
-    "@joplin/turndown-plugin-gfm": "catalog:"
+    "unpdf": "catalog:"
   },
   "devDependencies": {
-    "@types/turndown": "catalog:",
     "rimraf": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
