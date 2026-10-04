@@ -4,7 +4,10 @@
   "private": false,
   "type": "module",
   "description": "In-memory indexer implementation backed by MiniSearch for full-text search.",
-  "homepage": "https://github.com/statewalker/statewalker-indexer",
+  "bugs": {
+    "url": "https://github.com/statewalker/statewalker-search/issues"
+  },
+  "homepage": "https://github.com/statewalker/statewalker-search/tree/main/packages/indexer-mem-minisearch#readme",
   "author": {
     "name": "Mikhail Kotelnikov",
     "email": "mikhail.kotelnikov@gmail.com"
@@ -12,7 +15,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/statewalker-indexer.git"
+    "url": "git+https://github.com/statewalker/statewalker-search.git",
+    "directory": "packages/indexer-mem-minisearch"
   },
   "exports": {
     ".": {
