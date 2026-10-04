@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/indexer-api",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "description": "Pluggable indexer contract: defines full-text, vector, and hybrid index APIs consumed by every @statewalker/indexer-* implementation.",

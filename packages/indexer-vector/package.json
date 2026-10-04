@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/indexer-vector",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "description": "Vector / embedding modality contract for @statewalker/indexer-api: VectorIndex/VectorBlock/VectorQuery/VectorResult types and the adapter triple at key \"vector\".",

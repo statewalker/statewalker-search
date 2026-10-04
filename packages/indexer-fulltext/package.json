@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/indexer-fulltext",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "description": "Full-text modality contract for @statewalker/indexer-api: FullTextIndex/FullTextBlock/FulltextQuery/FulltextResult types and the adapter triple at key \"fulltext\".",
