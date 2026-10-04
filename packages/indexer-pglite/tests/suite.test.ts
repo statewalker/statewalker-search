@@ -11,7 +11,7 @@
 // =============================================================================
 
 import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 import type { DocumentPath, Index } from "@statewalker/indexer-api";
 import { sanitizePrefix } from "@statewalker/indexer-core";
 import type { FulltextQuery } from "@statewalker/indexer-fulltext";

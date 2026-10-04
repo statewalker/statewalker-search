@@ -32,11 +32,12 @@
     "format": "biome format --write ."
   },
   "dependencies": {
+    "@electric-sql/pglite": "catalog:",
+    "@electric-sql/pglite-pgvector": "catalog:",
     "@statewalker/indexer-api": "workspace:^",
     "@statewalker/indexer-core": "workspace:^",
     "@statewalker/indexer-fulltext": "workspace:^",
-    "@statewalker/indexer-vector": "workspace:^",
-    "@electric-sql/pglite": "catalog:"
+    "@statewalker/indexer-vector": "workspace:^"
   },
   "devDependencies": {
     "@statewalker/indexer-tests": "workspace:^",

@@ -1,5 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 import type { Indexer } from "@statewalker/indexer-api";
 import { createSqlIndexer } from "@statewalker/indexer-core";
 import { pgliteDialect, wrapDbAsSqlDb } from "./dialect.js";
