@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/indexer-pglite",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": false,
   "type": "module",
   "description": "PGlite-backed indexer implementation: full-text + vector search using in-browser Postgres.",
@@ -15,7 +15,12 @@
     "url": "git+ssh://git@github.com/statewalker/statewalker-indexer.git"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist",
@@ -32,14 +37,15 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@statewalker/indexer-api": "workspace:*",
-    "@statewalker/indexer-core": "workspace:*",
-    "@statewalker/indexer-fulltext": "workspace:*",
-    "@statewalker/indexer-vector": "workspace:*",
-    "@electric-sql/pglite": "catalog:"
+    "@electric-sql/pglite": "catalog:",
+    "@electric-sql/pglite-pgvector": "catalog:",
+    "@statewalker/indexer-api": "workspace:^",
+    "@statewalker/indexer-core": "workspace:^",
+    "@statewalker/indexer-fulltext": "workspace:^",
+    "@statewalker/indexer-vector": "workspace:^"
   },
   "devDependencies": {
-    "@statewalker/indexer-tests": "workspace:*",
+    "@statewalker/indexer-tests": "workspace:^",
     "rimraf": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",

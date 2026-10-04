@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/indexer-api",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "description": "Pluggable indexer contract: defines full-text, vector, and hybrid index APIs consumed by every @statewalker/indexer-* implementation.",
@@ -15,7 +15,12 @@
     "url": "git+ssh://git@github.com/statewalker/statewalker-indexer.git"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist",

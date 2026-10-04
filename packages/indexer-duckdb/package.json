@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/indexer-duckdb",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": false,
   "type": "module",
   "description": "DuckDB-backed indexer implementation: full-text + vector search using @statewalker/db-api.",
@@ -15,7 +15,12 @@
     "url": "git+ssh://git@github.com/statewalker/statewalker-indexer.git"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist",
@@ -32,15 +37,15 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@statewalker/indexer-api": "workspace:*",
-    "@statewalker/indexer-core": "workspace:*",
-    "@statewalker/indexer-fulltext": "workspace:*",
-    "@statewalker/indexer-vector": "workspace:*",
+    "@statewalker/indexer-api": "workspace:^",
+    "@statewalker/indexer-core": "workspace:^",
+    "@statewalker/indexer-fulltext": "workspace:^",
+    "@statewalker/indexer-vector": "workspace:^",
     "@statewalker/db-api": "catalog:"
   },
   "devDependencies": {
     "@statewalker/db-duckdb-node": "catalog:",
-    "@statewalker/indexer-tests": "workspace:*",
+    "@statewalker/indexer-tests": "workspace:^",
     "rimraf": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",

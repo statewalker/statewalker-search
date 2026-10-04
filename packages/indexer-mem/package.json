@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/indexer-mem",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": false,
   "type": "module",
   "description": "In-memory base implementation of @statewalker/indexer-api. Reusable scaffold for full-text and vector in-memory indexers.",
@@ -15,7 +15,12 @@
     "url": "git+ssh://git@github.com/statewalker/statewalker-indexer.git"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist",
@@ -32,9 +37,9 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@statewalker/indexer-api": "workspace:*",
-    "@statewalker/indexer-core": "workspace:*",
-    "@statewalker/indexer-vector": "workspace:*",
+    "@statewalker/indexer-api": "workspace:^",
+    "@statewalker/indexer-core": "workspace:^",
+    "@statewalker/indexer-vector": "workspace:^",
     "@uwdata/flechette": "catalog:"
   },
   "devDependencies": {

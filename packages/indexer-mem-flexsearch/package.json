@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/indexer-mem-flexsearch",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": false,
   "type": "module",
   "description": "In-memory indexer implementation backed by FlexSearch for full-text search.",
@@ -15,7 +15,12 @@
     "url": "git+ssh://git@github.com/statewalker/statewalker-indexer.git"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist",
@@ -32,16 +37,16 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@statewalker/indexer-api": "workspace:*",
-    "@statewalker/indexer-core": "workspace:*",
-    "@statewalker/indexer-fulltext": "workspace:*",
-    "@statewalker/indexer-mem": "workspace:*",
+    "@statewalker/indexer-api": "workspace:^",
+    "@statewalker/indexer-core": "workspace:^",
+    "@statewalker/indexer-fulltext": "workspace:^",
+    "@statewalker/indexer-mem": "workspace:^",
     "flexsearch": "catalog:"
   },
   "devDependencies": {
-    "@statewalker/indexer-search": "workspace:*",
-    "@statewalker/indexer-tests": "workspace:*",
-    "@statewalker/indexer-vector": "workspace:*",
+    "@statewalker/indexer-search": "workspace:^",
+    "@statewalker/indexer-tests": "workspace:^",
+    "@statewalker/indexer-vector": "workspace:^",
     "rimraf": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
