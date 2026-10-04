@@ -15,9 +15,24 @@
     "url": "git+ssh://git@github.com/statewalker/statewalker-content.git"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./types": "./src/types.ts",
-    "./extractors": "./src/extractors/index.ts"
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "source": "./src/types.ts",
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "default": "./dist/types.js"
+    },
+    "./extractors": {
+      "source": "./src/extractors/index.ts",
+      "types": "./dist/extractors/index.d.ts",
+      "import": "./dist/extractors/index.js",
+      "default": "./dist/extractors/index.js"
+    }
   },
   "files": [
     "dist",
