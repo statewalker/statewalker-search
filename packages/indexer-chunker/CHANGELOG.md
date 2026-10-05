@@ -1,0 +1,9 @@
+# @statewalker/indexer-chunker
+
+## 0.1.2
+
+### Patch Changes
+
+- Release of the changes since the last published version:
+  
+  - files changed: README.md
