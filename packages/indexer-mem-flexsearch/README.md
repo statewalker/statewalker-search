@@ -1,55 +1,104 @@
 # @statewalker/indexer-mem-flexsearch
 
-In-memory implementation of `@statewalker/indexer-api` combining [FlexSearch](https://github.com/nextapps-de/flexsearch) for full-text search with `@statewalker/indexer-mem`'s `MemVectorIndex` for embeddings. Optional streaming persistence via `IndexerPersistence`.
+## What it is
 
-## Installation
+An in-memory `Indexer` that uses [FlexSearch](https://github.com/nextapps-de/flexsearch) for full-text sub-indexes and `MemVectorIndex` from `@statewalker/indexer-mem` for vector sub-indexes. State can be saved and restored through an `IndexerPersistence` port you provide (files, IndexedDB, a blob store, ...).
+
+## Why it exists
+
+It needs no database and no native code, so it runs in the browser, in Node and in workers, and starts instantly. Use it for small and medium collections, tests, and offline apps. `@statewalker/indexer-mem-minisearch` is the same indexer with a different full-text engine; see "How the two in-memory engines differ" below.
+
+## How to use
 
 ```sh
 pnpm add @statewalker/indexer-mem-flexsearch
 ```
 
-## Usage
+One entry point, `@statewalker/indexer-mem-flexsearch`:
+
+- `createFlexSearchIndexer(options?)` returns an `Indexer`. `options.persistence?: IndexerPersistence`.
+- `flexSearchFullTextProvider` — the `FullTextProvider`, for building your own indexer with `createPersistenceBackedIndexer`.
+- `FlexSearchFullTextIndex` — the full-text sub-index class.
+- `FlexSearchIndexerOptions` — the options type.
+
+Add `@statewalker/indexer-fulltext` and `@statewalker/indexer-vector` for the access handles used below.
+
+## Examples
 
 ```ts
 import { createFlexSearchIndexer } from "@statewalker/indexer-mem-flexsearch";
+import { newFullTextAccess, setFullTextConfig } from "@statewalker/indexer-fulltext";
+import { newVectorAccess, setVectorConfig } from "@statewalker/indexer-vector";
 
 const indexer = createFlexSearchIndexer();
-const index = await indexer.createIndex({
-  name: "docs",
-  fulltext: { language: "en" },
-  vector: { dimensionality: 384, model: "all-MiniLM-L6-v2" },
-});
 
-await index.addDocument([
-  { path: "/docs/a", blockId: "1", content: "hello world" },
-]);
+const params = { name: "docs" };
+setFullTextConfig(params, "q", { language: "en" });
+setVectorConfig(params, "semantic", { dimensionality: 384, model: "all-MiniLM-L6-v2" });
+const index = await indexer.createIndex(params);
 
-for await (const hit of index.search({ queries: ["hello"], topK: 10 })) {
-  console.log(hit.path, hit.blockId, hit.score);
+const fts = newFullTextAccess("q");
+await fts.get(index).addDocument([{ path: "/docs/a", blockId: "1", content: "hello world" }]);
+
+const request = { topK: 10 };
+fts.setQuery(request, { queries: ["hello"] });
+for await (const r of index.search(request)) {
+  console.log(r.path, r.blockId, r.score, fts.getResult(r)?.score);
 }
 ```
 
-### With persistence
+With persistence:
 
 ```ts
-import { createFlexSearchIndexer } from "@statewalker/indexer-mem-flexsearch";
 import type { IndexerPersistence } from "@statewalker/indexer-api";
+import { createFlexSearchIndexer } from "@statewalker/indexer-mem-flexsearch";
 
-const persistence: IndexerPersistence = /* … your save/load adapter … */;
+const persistence: IndexerPersistence = {
+  async save(entries) {
+    for await (const entry of entries) {
+      // write entry.name; read bytes from entry.content (AsyncIterable<Uint8Array>)
+    }
+  },
+  async *load() {
+    // yield { name, content } for every saved entry
+  },
+};
+
 const indexer = createFlexSearchIndexer({ persistence });
-
-// First use loads existing state; `indexer.flush()` writes current state back.
+// ... createIndex / getIndex, add documents ...
+await indexer.flush(); // writes everything; close() also saves
 ```
 
-Wire format (stable, byte-compatible across releases): `__manifest__` (JSON array of index names), `${name}/__config__`, `${name}/fts` (FlexSearch serialized state), `${name}/vec` (Arrow IPC from `MemVectorIndex`).
+## Internals
 
-## API
+### When state is saved
 
-- `createFlexSearchIndexer(options?)` — returns an `Indexer`. Options: `persistence?: IndexerPersistence`.
-- `FlexSearchIndexerOptions` — option type.
+Saved state is read on the first indexer call and written on `indexer.flush()` and `indexer.close()`, never in between. A process that exits without one of them loses its changes. `save` receives the whole state each time:
 
-## Related
+```
+__manifest__              JSON array of index names
+<index>/__manifest__      JSON { name, subIndexes }
+<index>/<sub>/json        full-text sub-index (FlexSearch state, format version 3)
+<index>/<sub>/arrow       vector sub-index (Arrow IPC from MemVectorIndex)
+```
 
-- `@statewalker/indexer-api` — the pluggable contract.
-- `@statewalker/indexer-mem-minisearch` — drop-in alternative using MiniSearch.
-- `@statewalker/indexer-mem` — provides the vector sub-index (`MemVectorIndex`).
+Loading a saved full-text entry with another format version throws `FlexSearchFullTextIndex: unsupported serialised version <n> (expected 3)`.
+
+### How the two in-memory engines differ
+
+| | FlexSearch | MiniSearch |
+| --- | --- | --- |
+| Matching | `tokenize: "forward"` (prefix matching), multi-word queries with `suggest: true` so partial matches are returned | `prefix: true`, `fuzzy: 0.2`; if nothing matches, retries without fuzzy, then with `combineWith: "OR"` |
+| `score` in `subResults` | rank-based: `1 - rank / hits` per query | MiniSearch relevance score |
+
+In both, a sub-query with several `queries` adds up per-query scores, so blocks matching more queries rank higher. `snippet` is the whole block content. `language` is stored but not used: there is no stemming or stop-word list. Default retrieval depth is `topK = 100` per sub-query.
+
+FlexSearch-specific: each query fetches `topK * 3` candidates from FlexSearch and then applies the `paths` filter. With a narrow path prefix in a large index you can get fewer than `topK` hits even though more blocks under that prefix match. Raise the sub-query `topK` if that matters.
+
+### Dependencies
+
+`flexsearch` (full-text engine), `@statewalker/indexer-mem` (vectors), `@statewalker/indexer-core` (indexer builder), `@statewalker/indexer-api`, `@statewalker/indexer-fulltext`.
+
+## License
+
+MIT

@@ -3,7 +3,7 @@
   "version": "0.1.1",
   "private": false,
   "type": "module",
-  "description": "Vector / embedding modality contract for @statewalker/indexer-api: VectorIndex/VectorBlock/VectorQuery/VectorResult types and the adapter triple at key \"vector\".",
+  "description": "Vector modality for @statewalker/indexer-api: VectorIndex types, VectorProvider, config helpers and the newVectorAccess handle.",
   "bugs": {
     "url": "https://github.com/statewalker/statewalker-search/issues"
   },

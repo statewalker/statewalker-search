@@ -1,29 +1,72 @@
 # @statewalker/indexer-tests
 
-> Internal, workspace-only dev dependency. **Not published**.
+Private workspace package; not published to npm.
 
-Shared Vitest suite that every `@statewalker/indexer-*` backend runs against. Covers the full [`Indexer`/`Index`/`FullTextIndex`/`EmbeddingIndex`](../indexer-api/src/) contract: lifecycle, CRUD, path-prefix filtering, hybrid search, persistence round-trip, multi-indexer isolation, and search-quality fixtures.
+## What it is
 
-## Usage
+Vitest conformance suites for `@statewalker/indexer-*` backends. Each suite is a function that registers `describe`/`it` blocks; a backend calls the suites it needs from its own test file, passing factories and providers.
 
-In a backend package's `tests/suite.test.ts`:
+## Why it exists
+
+All backends must behave the same through the `Indexer` / `Index` contract: registry, lifecycle, manifests and load actions, path prefixes, RRF fusion, several sub-indexes of one type. Writing those tests once and running them against every backend is what keeps the backends interchangeable.
+
+## How to use
+
+Add as a dev dependency inside this workspace: `"@statewalker/indexer-tests": "workspace:^"`. It needs `vitest` (peer dependency). Its `exports` point at TypeScript sources, which Vitest loads directly.
+
+| Export | Checks |
+| --- | --- |
+| `runKernelConformanceSuite(name, { factory, primaryConfig, secondaryConfig })` | Binding registry, create/get/delete, manifests, load actions, `onMissingProvider`, persistence round trip. |
+| `runFullTextConformanceSuite(name, provider, { config })` | One full-text sub-index from a `FullTextProvider`. |
+| `runFullTextMultiWordSuite(...)` | Multi-word full-text queries. |
+| `runVectorConformanceSuite(name, provider, { config })` | One vector sub-index from a `VectorProvider`. |
+| `runRrfBlendingSuite(name, { factory, config, populate, ... })` | Fusion order and sub-results. |
+| `runMultiInstanceConformanceSuite(...)` | Several sub-indexes of the same type on one index. |
+| `MemoryPersistence`, `collect`, `defined` | Test helpers. |
+
+`IndexerFactory` is `{ create(), createWithPersistence?(persistence), cleanup?() }`.
+
+## Examples
+
+Shortened from `packages/indexer-mem-minisearch/tests/suite.test.ts`:
 
 ```ts
-import { runIndexerTestSuite } from "@statewalker/indexer-tests";
-import { createFlexSearchIndexer } from "@statewalker/indexer-mem-flexsearch";
+import type { IndexerPersistence } from "@statewalker/indexer-api";
+import { memVectorProvider } from "@statewalker/indexer-mem";
+import {
+  runFullTextConformanceSuite,
+  runKernelConformanceSuite,
+  runVectorConformanceSuite,
+} from "@statewalker/indexer-tests";
+import { createMiniSearchIndexer } from "../src/minisearch-indexer.js";
+import { miniSearchFullTextProvider } from "../src/minisearch-provider.js";
 
-runIndexerTestSuite("FlexSearch Indexer", async () => createFlexSearchIndexer());
+const factory = {
+  create: async () => createMiniSearchIndexer(),
+  createWithPersistence: async (persistence: IndexerPersistence) => createMiniSearchIndexer({ persistence }),
+};
+
+runKernelConformanceSuite("MiniSearch + MemVector", {
+  factory,
+  primaryConfig: { type: "fulltext", language: "en" },
+  secondaryConfig: { type: "vector", dimensionality: 3, model: "test" },
+});
+runFullTextConformanceSuite("MiniSearch FTS", miniSearchFullTextProvider, {
+  config: { language: "en" },
+});
+runVectorConformanceSuite("MemVector", memVectorProvider, {
+  config: { dimensionality: 3, model: "test" },
+});
 ```
 
-The factory callback is invoked per-test to produce a fresh `Indexer` (in-memory for mem backends, a fresh DuckDB/PGlite instance for SQL backends).
+Run a backend's suites with `pnpm --filter @statewalker/indexer-mem-minisearch test` (after `pnpm build`).
 
-## Exports
+## Internals
 
-- `runIndexerTestSuite(name, factory)` — main cross-backend suite entry point.
-- `IndexerFactory` — type alias for the factory callback.
-- Fixture loaders: `loadBlocksFixture`, `loadQueriesFixture`, `loadQueriesEmbeddingsFixture`, `listFixtureDocs`, `readFixtureDoc`.
-- `createFixtureEmbedFn`, `EMBEDDING_DIMENSIONS`, `EMBEDDING_MODEL` — deterministic embedding helpers for test inputs.
+- The suites are self-contained: each creates its own small data set.
+- `src/fixtures/` holds Markdown documents, queries and precomputed embeddings. They are not exported, because the loader uses Node file APIs.
+- Dependencies: `@statewalker/indexer-api`, `@statewalker/indexer-fulltext`, `@statewalker/indexer-vector`, `@statewalker/indexer-search`; peer `vitest`.
 
-## Related
+## License
 
-- `@statewalker/indexer-api` — contract these tests enforce.
+MIT

@@ -1,51 +1,94 @@
-# statewalker-indexer
+# statewalker-search
 
-Indexing primitives: pluggable full-text and vector indexers (in-memory, DuckDB, PGlite).
+Search building blocks published under `@statewalker/*`: a pluggable indexer contract, full-text and vector indexers (in memory, DuckDB, PGlite), Markdown chunking, and content extractors that turn PDF, DOCX, XLSX, HTML and Markdown files into text. Applications pick one backend, create named indexes, put documents into named sub-indexes, and search them together.
 
-## Packages
+## The shape: a contract, two modalities, four backends
 
-<!-- List every package under `packages/` here with a one-line description and a link. Kept in sync by `scripts/new-monorepo.ts` and audited by `scripts/validate-migration.ts`. -->
+```
+                     indexer-api            (kernel types + helpers)
+                    /          \
+       indexer-fulltext      indexer-vector  (modality types, providers, access handles)
+                    \          /
+                     indexer-core           (composite index, RRF, indexer builders)
+          /            |              \               \
+ indexer-mem   indexer-mem-flexsearch  indexer-duckdb  indexer-pglite
+ (vectors)     indexer-mem-minisearch  (SQL backends)
+                                                       
+ Side packages: indexer-chunker, content-extractors   (no indexer dependency)
+ Private:       indexer-search (SearchPipeline), indexer-tests (conformance suites)
+```
 
-| Package | Description | Published |
-| --- | --- | :---: |
-| [@statewalker/indexer-api](packages/indexer-api) | Pluggable indexer contract: full-text, vector, hybrid. | yes |
-| [@statewalker/indexer-chunker](packages/indexer-chunker) | Markdown-aware chunking utilities. | yes |
-| [@statewalker/indexer-core](packages/indexer-core) | Workspace-internal scaffolding consumed by the backends (composite index, merge, SQL retrievers, generic factory builders). | no |
-| [@statewalker/indexer-mem](packages/indexer-mem) | In-memory vector sub-index (`MemVectorIndex`) used by the FlexSearch/MiniSearch indexers. | yes |
-| [@statewalker/indexer-mem-flexsearch](packages/indexer-mem-flexsearch) | FlexSearch + `MemVectorIndex` + optional persistence. | yes |
-| [@statewalker/indexer-mem-minisearch](packages/indexer-mem-minisearch) | MiniSearch + `MemVectorIndex` + optional persistence. | yes |
-| [@statewalker/indexer-duckdb](packages/indexer-duckdb) | DuckDB backend: real BM25 FTS (`fts` extension) + HNSW cosine vector (`vss` extension). | yes |
-| [@statewalker/indexer-pglite](packages/indexer-pglite) | PGlite backend: `tsvector`/GIN FTS + `pgvector` HNSW cosine. | yes |
-| [@statewalker/indexer-search](packages/indexer-search) | Workspace-internal app-side search-orchestration stack (SearchPipeline, embed helpers, reranker blending, mocks). QMD-port utilities live under `./utils`. | no |
-| [@statewalker/indexer-tests](packages/indexer-tests) | Shared Vitest conformance suite run by every backend. | no |
+| Package | What it gives you | npm |
+| --- | --- | --- |
+| [@statewalker/indexer-api](packages/indexer-api) | `Indexer`, `Index`, `SearchIndex`, `ModalityProvider` types; sub-query/sub-result helpers. | [npm](https://www.npmjs.com/package/@statewalker/indexer-api) |
+| [@statewalker/indexer-fulltext](packages/indexer-fulltext) | Full-text types, `FullTextProvider`, `newFullTextAccess`, config helpers. | [npm](https://www.npmjs.com/package/@statewalker/indexer-fulltext) |
+| [@statewalker/indexer-vector](packages/indexer-vector) | Vector types, `VectorProvider`, `newVectorAccess`, config helpers. | [npm](https://www.npmjs.com/package/@statewalker/indexer-vector) |
+| [@statewalker/indexer-core](packages/indexer-core) | Code for backend authors: composite index, RRF, persistence-backed and SQL indexer builders. | [npm](https://www.npmjs.com/package/@statewalker/indexer-core) |
+| [@statewalker/indexer-mem](packages/indexer-mem) | In-memory vector sub-index (`MemVectorIndex`) and `memVectorProvider`. | [npm](https://www.npmjs.com/package/@statewalker/indexer-mem) |
+| [@statewalker/indexer-mem-flexsearch](packages/indexer-mem-flexsearch) | In-memory indexer: FlexSearch full-text + in-memory vectors, optional persistence. | [npm](https://www.npmjs.com/package/@statewalker/indexer-mem-flexsearch) |
+| [@statewalker/indexer-mem-minisearch](packages/indexer-mem-minisearch) | In-memory indexer: MiniSearch full-text + in-memory vectors, optional persistence. | [npm](https://www.npmjs.com/package/@statewalker/indexer-mem-minisearch) |
+| [@statewalker/indexer-duckdb](packages/indexer-duckdb) | DuckDB indexer: BM25 full-text (`fts`) + HNSW vectors (`vss`). | [npm](https://www.npmjs.com/package/@statewalker/indexer-duckdb) |
+| [@statewalker/indexer-pglite](packages/indexer-pglite) | PGlite indexer: `tsvector`/GIN full-text + pgvector HNSW. | [npm](https://www.npmjs.com/package/@statewalker/indexer-pglite) |
+| [@statewalker/indexer-chunker](packages/indexer-chunker) | Markdown-aware chunking before indexing. | [npm](https://www.npmjs.com/package/@statewalker/indexer-chunker) |
+| [@statewalker/content-extractors](packages/content-extractors) | Text extraction from PDF, DOCX, XLSX, HTML, Markdown, plain text. | [npm](https://www.npmjs.com/package/@statewalker/content-extractors) |
+| [@statewalker/indexer-search](packages/indexer-search) | `SearchPipeline` (expand, embed, search, rerank, cite), `weightedBlend`, query parser. | private |
+| [@statewalker/indexer-tests](packages/indexer-tests) | Vitest conformance suites that every backend runs. | private |
 
-## Cross-repo dependencies
+External `@statewalker` dependencies: `@statewalker/db-api` (runtime, `indexer-duckdb`) and `@statewalker/db-duckdb-node` (tests of `indexer-duckdb`).
 
-This repository depends on:
+## How to run it
 
-| Repository | Packages used |
+1. Install Node.js 24 and enable corepack: `corepack enable`. pnpm 10 is pinned in `packageManager`.
+2. Install: `pnpm install`.
+3. Build all packages: `pnpm build`. Tests and typechecks of a package use the built `dist/` of its dependencies, so build first.
+4. Test: `pnpm test`. Type-check: `pnpm typecheck`.
+5. Before pushing: `pnpm lint:check` and `pnpm format:check` (or `pnpm lint` / `pnpm format` to fix).
+
+For one package: `pnpm --filter @statewalker/<name> <script>`.
+
+## Why it is the way it is
+
+- **Sub-indexes are named, not keyed by modality.** One index can hold two full-text sub-indexes (English and French) or two vector sub-indexes (content and summaries). Queries and results are addressed by sub-index name, so the kernel never needs to know modality types; a new modality is a new package.
+- **`Index.search` fuses with parameter-free RRF.** BM25 and cosine scores are not comparable, so the top-level `score` is a rank-fusion score. The native score of each sub-index stays on `result.subResults[name]`. Weighted blending is a caller-side step (`weightedBlend` in `indexer-search`).
+- **Persistence is per sub-index.** A sub-index that can save itself implements `serialise()` / `loadFrom()`. The in-memory backends save through an `IndexerPersistence` port; the SQL backends store everything in their database.
+- **The SQL backends share one indexer builder** (`createSqlIndexer` in `indexer-core`) because they share a per-index docs table that maps paths to row ids; the in-memory backends use the provider-based `createPersistenceBackedIndexer`.
+- **Packages ship `dist/` and `src/`.** `exports` point at `dist/`; the sources are included for reading and debugging.
+
+## What will surprise you
+
+- **`SearchRequest.paths` does not filter.** The composite passes only each sub-query to its sub-index; the top-level `paths` is not forwarded. Put `paths` on each sub-query (`{ queries, paths }` / `{ embeddings, paths }`), or you get hits from the whole index.
+- **Top-level `topK` only truncates the fused list.** Each sub-index retrieves `sub-query.topK` hits (default 100 in all current backends), then RRF fuses them.
+- **DuckDB downloads extensions.** `createDuckDbIndexer` runs `INSTALL fts; INSTALL vss;`. Offline or sandboxed hosts fail at init with DuckDB's extension download error.
+- **PGlite rejects unknown languages** with `pglite FTS: unsupported language "<x>" (must be an ISO-639-1 code or a Postgres text-search config name)`.
+- **`language` does nothing in the in-memory full-text indexes.** FlexSearch and MiniSearch run without stemming; the value is only stored.
+
+## Reference
+
+### Commands
+
+| Command | Does |
 | --- | --- |
-| [`statewalker-db`](https://github.com/statewalker/statewalker-db) | `@statewalker/db-api` |
+| `pnpm build` | `pnpm -r run build` (tsdown, writes `dist/`) |
+| `pnpm test` | Vitest in every package under `packages/` |
+| `pnpm typecheck` | `tsc --noEmit` in every package |
+| `pnpm lint` / `pnpm lint:check` | Biome check with / without writes |
+| `pnpm format` / `pnpm format:check` | Biome format with / without writes |
+| `pnpm changeset` | Add a changeset (bump level and changelog text) |
 
-Cross-repo dependencies are declared `workspace:*` rather than `catalog:`. This is
-deliberate: turbo derives its task graph from `workspace:` specifiers and does **not**
-resolve `catalog:`, so a `catalog:` cross-repo dependency is invisible to the scheduler
-and its consumer can be built before it.
+### Releases
 
-## Development
+Packages are published to npm from CI with changesets. After CI passes on `main`, changesets are generated for packages whose packed contents differ from npm, and a "chore: version packages" pull request is opened; merging it publishes with npm provenance. Run `pnpm changeset` in your pull request to choose the bump or the changelog text yourself. Dependency updates arrive as Renovate pull requests.
 
-```sh
-pnpm install
-pnpm run build
-pnpm run test
-```
+### Files
 
-## Release
+| Path | Contents |
+| --- | --- |
+| `packages/*` | Workspace packages |
+| `pnpm-workspace.yaml` | Workspace globs and the dependency catalog |
+| `biome.json` | Lint and format rules |
+| `turbo.json` | Task graph |
+| `CONTEXT.md` | Vocabulary of the indexer contract |
 
-Releases are managed via [changesets](https://github.com/changesets/changesets):
+## License
 
-```sh
-pnpm changeset           # describe the change
-pnpm version-packages    # roll versions + regenerate CHANGELOGs
-pnpm release-packages    # publish to npm
-```
+MIT. See [LICENSE](LICENSE).
