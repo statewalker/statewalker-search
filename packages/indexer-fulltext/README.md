@@ -1,42 +1,67 @@
 # @statewalker/indexer-fulltext
 
-Full-text modality contract for [`@statewalker/indexer-api`](../indexer-api/README.md).
+## What it is
 
-Owns the **full-text** types — `FullTextIndex`, `FullTextBlock`, `FulltextQuery`, `FulltextResult`, `FullTextIndexInfo` — and the **adapter triple** registered at the stable key `"fulltext"`:
+The full-text modality for `@statewalker/indexer-api`: the sub-index types (`FullTextIndex`, `FullTextBlock`, `FulltextQuery`, `FulltextResult`), the `FullTextProvider` interface that backends implement, config helpers for `CreateIndexParams`, and `newFullTextAccess(name)`, a typed handle bound to one sub-index name. The modality type string is `"fulltext"` (`FULL_TEXT_TYPE`).
 
-- `getFullTextIndex(index)` / `registerFullText(index, fts)` — read / register the full-text sub-index on a composite `Index`.
-- `getFulltextQuery(request)` / `setFulltextQuery(request, q)` — attach the full-text sub-query to a `SearchRequest`.
-- `getFulltextResult(result)` / `setFulltextResult(result, hit)` — attach the full-text sub-result to a `SearchResult`.
-- `getFullTextConfig(params)` / `setFullTextConfig(params, cfg)` — write/read the FTS creation config in `CreateIndexParams.subIndexes`.
+## Why it exists
 
-## Usage
+The kernel addresses sub-indexes by name and stores queries and results as `unknown`. This package puts the full-text types back on top: an access handle reads and writes the sub-index, its config, its sub-query and its sub-result under one name, with the right types and without string-keyed map access in user code.
+
+## How to use
+
+```sh
+pnpm add @statewalker/indexer-fulltext
+```
+
+One entry point, `@statewalker/indexer-fulltext`. Platform-neutral.
+
+- `setFullTextConfig(params, name, { language, metadata? })` before `indexer.createIndex(params)`.
+- `newFullTextAccess(name)` returns `{ name, get, tryGet, setConfig, getConfig, setQuery, getQuery, getResult }`.
+
+## Examples
+
+Two full-text sub-indexes on one index:
 
 ```ts
-import {
-  registerFullText,
-  setFulltextQuery,
-  getFulltextResult,
-  setFullTextConfig,
-} from "@statewalker/indexer-fulltext";
+import { newFullTextAccess, setFullTextConfig } from "@statewalker/indexer-fulltext";
 
-// 1. Tell the indexer to provision a full-text sub-index when creating.
 const params = { name: "docs" };
-setFullTextConfig(params, { language: "english" });
+setFullTextConfig(params, "q", { language: "en" });
+setFullTextConfig(params, "q_fr", { language: "fr" });
 const index = await indexer.createIndex(params);
 
-// 2. Build a search request with a full-text sub-query.
-const request = { topK: 10 };
-setFulltextQuery(request, { queries: ["CAP theorem"] });
+const en = newFullTextAccess("q");
+await en.get(index).addDocument([{ path: "/docs/a", blockId: "1", content: "CAP theorem" }]);
 
-// 3. Read native scores + snippets off the sub-result.
+const request = { topK: 10 };
+en.setQuery(request, { queries: ["CAP theorem"], paths: ["/docs/"] });
 for await (const r of index.search(request)) {
-  const fts = getFulltextResult(r);
-  console.log(r.path, r.blockId, "rrf:", r.score, "bm25:", fts?.score, fts?.snippet);
+  const hit = en.getResult(r);
+  console.log(r.path, r.blockId, "rrf:", r.score, "native:", hit?.score, hit?.snippet);
 }
 ```
 
-## Related
+Implement a provider in a backend:
 
-- [`@statewalker/indexer-api`](../indexer-api/README.md) — kernel contract
-- [`@statewalker/indexer-vector`](../indexer-vector/README.md) — vector modality
-- `@statewalker/indexer-mem-flexsearch`, `@statewalker/indexer-mem-minisearch` — backend implementations
+```ts
+import { FULL_TEXT_TYPE, type FullTextProvider } from "@statewalker/indexer-fulltext";
+
+export const myProvider: FullTextProvider = {
+  type: FULL_TEXT_TYPE,
+  create: (config) => new MyFullTextIndex(config), // must implement FullTextIndex
+};
+```
+
+## Internals
+
+- `setFullTextConfig` writes `params.subIndexes[name] = { type: "fulltext", ...config }`. The indexer finds the provider by that `type`. `getFullTextConfig` returns `undefined` when the entry is missing or has another type.
+- `FulltextQuery` is `{ queries: string[], topK?, paths? }`. How several `queries` combine depends on the backend: the in-memory FlexSearch and MiniSearch indexes add up per-query scores (blocks matching more queries rank higher); DuckDB and PGlite keep each block's best score. `topK` and `paths` here are what the sub-index uses; the top-level request values are not forwarded to it.
+- `FulltextResult` is `{ path, blockId, score, snippet }`; `score` is the engine's native score (BM25 in DuckDB, `ts_rank_cd` in PGlite).
+- `language` handling is backend-specific: DuckDB and PGlite map ISO-639-1 codes (`"en"`, `"fr"`, ...) to stemmers / text-search configs; the in-memory FlexSearch and MiniSearch indexes only store it.
+- `get(index)` throws `No sub-index named "<name>" is registered on index "<index>"`. It does not check the binding's type.
+- Dependencies: `@statewalker/indexer-api` only.
+
+## License
+
+MIT

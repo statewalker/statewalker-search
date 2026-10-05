@@ -1,53 +1,92 @@
 # @statewalker/indexer-pglite
 
-PGlite-backed implementation of `@statewalker/indexer-api`: full-text search via PostgreSQL's native `tsvector` + GIN index, vector search via [pgvector](https://github.com/pgvector/pgvector) with an HNSW cosine index. Runs entirely in-process (in the browser, Node, or anywhere [PGlite](https://github.com/electric-sql/pglite) does).
+## What it is
 
-## Installation
+An `Indexer` stored in [PGlite](https://github.com/electric-sql/pglite) (PostgreSQL compiled to WASM). Full-text sub-indexes use PostgreSQL `tsvector` columns with a GIN index and `ts_rank_cd` scoring; vector sub-indexes use pgvector with an HNSW cosine index. It runs in the browser, in Node and in workers.
+
+## Why it exists
+
+It gives real PostgreSQL text search (stemming per language) and an approximate nearest-neighbour vector index without a server. With an IndexedDB or file `dataDir`, data persists without a separate save step.
+
+## How to use
 
 ```sh
-pnpm add @statewalker/indexer-pglite @electric-sql/pglite
+pnpm add @statewalker/indexer-pglite
 ```
 
-## Usage
+`@electric-sql/pglite` and `@electric-sql/pglite-pgvector` are dependencies of this package. Add them to your own `package.json` only if you create the `PGlite` instance yourself.
+
+One entry point, `@statewalker/indexer-pglite`:
+
+- `createPGLiteIndexer(options?): Promise<Indexer>` — `options.db?: PGlite`.
+- `PGLiteIndexerOptions` — the options type.
+
+## Examples
+
+In-memory database owned by the indexer:
 
 ```ts
 import { createPGLiteIndexer } from "@statewalker/indexer-pglite";
+import { newFullTextAccess, setFullTextConfig } from "@statewalker/indexer-fulltext";
 
-// Uses an in-memory PGlite instance by default.
 const indexer = await createPGLiteIndexer();
 
-// Or pass an existing PGlite (with the `vector` extension already loaded):
-// import { PGlite } from "@electric-sql/pglite";
-// import { vector } from "@electric-sql/pglite/vector";
-// const db = await PGlite.create({ dataDir: "idb://myapp", extensions: { vector } });
-// const indexer = await createPGLiteIndexer({ db });
+const params = { name: "docs" };
+setFullTextConfig(params, "q", { language: "en" });
+const index = await indexer.createIndex(params);
 
-const index = await indexer.createIndex({
-  name: "docs",
-  fulltext: { language: "en" },
-  vector: { dimensionality: 384, model: "all-MiniLM-L6-v2" },
-});
+const fts = newFullTextAccess("q");
+await fts.get(index).addDocument([{ path: "/docs/a", blockId: "1", content: "running dogs" }]);
+
+const request = { topK: 10 };
+fts.setQuery(request, { queries: ["run"] }); // stemmed: matches "running"
+for await (const r of index.search(request)) {
+  console.log(r.path, r.blockId, fts.getResult(r)?.score); // ts_rank_cd
+}
+
+await indexer.close(); // also closes the PGlite instance it created
 ```
 
-## Runtime extension
+Your own persistent database:
 
-`createPGLiteIndexer` runs `CREATE EXTENSION IF NOT EXISTS vector` at init. When the factory creates its own PGlite (no `db` passed), it auto-loads the `vector` extension via PGlite's `extensions: { vector }` option; when a caller-supplied `db` is passed, the caller is responsible for having the extension available (pass `extensions: { vector }` to `PGlite.create`).
+```ts
+import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite-pgvector";
+import { createPGLiteIndexer } from "@statewalker/indexer-pglite";
 
-## SQL shape
+const db = await PGlite.create({ dataDir: "idb://my-app", extensions: { vector } });
+const indexer = await createPGLiteIndexer({ db });
+// indexer.close() does not close db; call db.close() yourself
+```
 
-Per named index:
+## Internals
 
-- `idx_<prefix>_docs(doc_id SERIAL PRIMARY KEY, path TEXT UNIQUE)` — path ↔ doc_id mapping.
-- `idx_<prefix>_fts(doc_id, block_id, content, content_tsv TSVECTOR GENERATED ..., metadata)` + `USING GIN (content_tsv)`.
-- `idx_<prefix>_vec(doc_id, block_id, embedding vector(dim))` + `USING hnsw (embedding vector_cosine_ops)`.
+### The vector extension must be loaded
 
-Search uses `ts_rank_cd` + `to_tsquery(<lang>, ...)` for FTS, and the `<=>` cosine-distance operator for vector search.
+At startup the indexer runs `CREATE EXTENSION IF NOT EXISTS vector`. When it creates the database itself it passes `extensions: { vector }`. A `PGlite` you pass in must be created with the same extension, otherwise this statement fails and the indexer is not created.
 
-## API
+### Tables
 
-- `createPGLiteIndexer(options?)` — returns `Promise<Indexer>`. Options: `db?: PGlite` (bring your own; otherwise a fresh in-memory instance is created, and the returned indexer owns and will close it on `indexer.close()`).
-- `PGLiteIndexerOptions` — option type.
+```
+__indexer_manifest(name, config)
+idx_<index>_docs(doc_id SERIAL, path UNIQUE)               path -> doc_id
+idx_<index>_<sub>_fts(doc_id, block_id, content, content_tsv TSVECTOR GENERATED, metadata)  + GIN
+idx_<index>_<sub>_vec(doc_id, block_id, embedding vector(dim))                              + HNSW vector_cosine_ops
+```
 
-## Related
+`content_tsv` is a generated column, so the full-text index is always current; there is no rebuild step.
 
-- `@statewalker/indexer-api`, `@electric-sql/pglite`, `pgvector`.
+### Queries, scores and languages
+
+- A full-text query is lowercased, split on whitespace, stripped of tsquery operators (`& | ! ( ) : ' " \`) and joined with `|` (OR). Score is `ts_rank_cd`. With several `queries` in one sub-query, each block keeps its best score across them (scores are not summed).
+- Vector `score` is `1 - (embedding <=> query)` (cosine). Embeddings are sent as text literals cast to `vector(dim)`.
+- `language` accepts ISO-639-1 codes (`en`, `fr`, `de`, `es`, `it`, `pt`, `nl`, `ru`, `sv`, `no`, `da`, `fi`, `hu`, `ro`, `tr`), `simple`, or the matching Postgres config names (`english`, ...). Anything else throws `pglite FTS: unsupported language "<x>" (must be an ISO-639-1 code or a Postgres text-search config name)`. The value is put into SQL, which is why it is checked against this list.
+- Default retrieval depth is `topK = 100` per sub-query.
+
+### Dependencies
+
+`@electric-sql/pglite` and `@electric-sql/pglite-pgvector` (database and vector extension), `@statewalker/indexer-core` (`createSqlIndexer` and the SQL retrievers), `@statewalker/indexer-api`, `@statewalker/indexer-fulltext`, `@statewalker/indexer-vector`.
+
+## License
+
+MIT

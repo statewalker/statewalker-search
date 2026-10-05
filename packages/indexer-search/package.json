@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Workspace-internal app-side search-orchestration stack: SearchPipeline + embedAndAdd/embedAndSearch helpers + reranker blending + mock factories. QMD-port query/intent utilities live under the secondary ./utils sub-export.",
+  "description": "Workspace-internal search orchestration: SearchPipeline (expand, embed, search, rerank, cite), weighted and reranker blending, mocks. Query parser and intent utilities under ./utils.",
   "bugs": {
     "url": "https://github.com/statewalker/statewalker-search/issues"
   },

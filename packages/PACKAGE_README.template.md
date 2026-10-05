@@ -1,25 +1,35 @@
 # {{packageName}}
 
+## What it is
+
+<!-- One paragraph: what the package does. -->
+
 {{packageDescription}}
 
-## Installation
+## Why it exists
+
+<!-- The problem it solves and what it replaces, in terms of the current design. -->
+
+## How to use
 
 ```sh
 pnpm add {{packageName}}
 ```
 
-## Usage
+<!-- Required peer dependencies, entry points (each `exports` subpath), runtime environments, and the basic API. -->
 
-<!-- One minimal end-to-end example. Keep it short. -->
+## Examples
+
+<!-- One copy-pasteable example per main export, with real imports. -->
 
 ```ts
 import {} from "{{packageName}}";
 ```
 
-## API
+## Internals
 
-<!-- List exported symbols with a one-line description each. -->
+<!-- Design decisions and why, non-obvious algorithms, constraints and edge cases with the error text the reader will see, dependencies and why (say "None" for zero-dependency packages). -->
 
-## Related
+## License
 
-<!-- Links to sibling packages in this monorepo that are typically used alongside this one. -->
+MIT

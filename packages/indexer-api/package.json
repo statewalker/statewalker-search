@@ -3,7 +3,7 @@
   "version": "0.1.1",
   "private": false,
   "type": "module",
-  "description": "Pluggable indexer contract: defines full-text, vector, and hybrid index APIs consumed by every @statewalker/indexer-* implementation.",
+  "description": "Backend-agnostic indexer contract: Indexer, Index as a registry of named sub-indexes, RRF search, persistence types.",
   "bugs": {
     "url": "https://github.com/statewalker/statewalker-search/issues"
   },

@@ -1,159 +1,99 @@
 # @statewalker/indexer-search
 
-Application-side search-orchestration stack built on [`@statewalker/indexer-api`](../indexer-api/README.md). Owns the strategy code that consumers of any conforming backend (`indexer-mem-*`, `indexer-pglite`, `indexer-duckdb`, …) typically want without re-implementing it themselves.
+Private workspace package; not published to npm.
 
-## What's in here
+## What it is
 
-| Module | Purpose |
-|--------|---------|
-| `SearchPipeline` | Builder/executor for multi-stage search (expand → embed → search → rerank → cite) |
-| `SemanticIndex`  | Convenience wrapper that auto-embeds at ingestion and search time |
-| `parseStructuredQuery` / `validateLexQuery` / `validateSemanticQuery` | Parser for typed (`lex:` / `vec:` / `hyde:` / `expand:`) query syntax |
-| `extractIntentTerms` / `selectBestChunk` | Intent-based stop-word filtering and chunk selection |
-| `blendWithReranker` / `BlendTier` / `DEFAULT_BLEND_TIERS` | Position-aware reranker blending |
-| Function types: `QueryExpanderFn`, `RerankerFn`, `CitationBuilderFn`, `ExpandedQuery`, `Citation` | The shapes a host application plugs in |
-| `createMockExpander` / `createMockReranker` / `createMockCitationBuilder` | Deterministic test doubles for the function types |
+Application-side search orchestration over any `Index` from `@statewalker/indexer-api`. `SearchPipeline` runs expand (prompt to typed queries), embed, search, rerank and cite as one call, with each LLM-backed stage supplied as a plain function. It also has `weightedBlend` (re-order fused results by weighted native scores), `blendWithReranker`, mock stage functions for tests, and, under `./utils`, a typed query parser (`lex:` / `vec:` / `hyde:`) and intent-based chunk selection.
 
-The package depends on `@statewalker/indexer-api` only. It does not depend on `@statewalker/indexer-core` or any backend package — strategy code lives strictly above the contract layer.
+## Why it exists
 
-## Why this lives in its own package
-
-Backends should not pay the compile/type cost of strategy code they never call. Conversely, application code that needs a `SearchPipeline` should not be coupled to a specific backend. Splitting the contract (`indexer-api`) from the strategy stack (`indexer-search`) makes the layering explicit:
-
-```
-indexer-api          (contract: types + interfaces, zero runtime)
-   ↑
-indexer-core         (backend toolkit: fanOutSearch, RRF, mergeHybrid, …)
-   ↑                            ↑
-indexer-mem-*        indexer-search   (app-side: SearchPipeline, SemanticIndex, …)
-indexer-pglite                           ↑
-indexer-duckdb                    downstream apps
-```
+`Index.search` only fuses ranked lists. Query expansion, embedding of query text, reranking and citations depend on models the application chooses, so they live here, above the contract, and not in the backends. The pipeline does not know modality names: the caller's `buildRequest` maps query material onto its own sub-index names.
 
 ## How to use
 
-### SemanticIndex — automatic embedding
+Inside this workspace add `"@statewalker/indexer-search": "workspace:^"`. Its `exports` point at TypeScript sources (`./src/index.ts`, `./src/utils/index.ts`), so consumers need a TypeScript-aware bundler or test runner.
+
+| Import | Gives |
+| --- | --- |
+| `@statewalker/indexer-search` | `SearchPipeline`, `weightedBlend`, `blendWithReranker`, `DEFAULT_BLEND_TIERS`, `createMockExpander`, `createMockReranker`, `createMockCitationBuilder`, and types (`PipelineConfig`, `PipelineEntry`, `BuildRequestContext`, `QueryExpanderFn`, `RerankerFn`, `CitationBuilderFn`, ...). |
+| `@statewalker/indexer-search/utils` | `parseStructuredQuery`, `validateLexQuery`, `validateSemanticQuery`, `extractIntentTerms`, `selectBestChunk`. |
+
+Commands: `pnpm --filter @statewalker/indexer-search test` (Vitest), `typecheck`, `build`.
+
+## Examples
+
+A pipeline over an index with a full-text sub-index `q` and a vector sub-index `semantic`:
 
 ```ts
-import type { EmbedFn } from "@statewalker/indexer-api";
-import { SemanticIndex } from "@statewalker/indexer-search";
-
-const semantic = new SemanticIndex(index, embed satisfies EmbedFn);
-
-// Embedding computed automatically from content
-await semantic.addDocument({
-  path: "/docs/guide/",
-  blockId: "ch1",
-  content: "Chapter 1: Introduction...",
-});
-
-// Search with automatic query embedding
-const results = await semantic.search({
-  query: "introduction",
-  topK: 5,
-});
-```
-
-### SearchPipeline — multi-stage search
-
-`SearchPipeline` chains: **expand** (query expansion) → **embed** (semantic query embedding) → **search** (single `index.search()` call, delegating fusion to the index) → **rerank** (score blending) → **cite** (citation extraction). Each LLM stage is defined as a function type — pass closures, no class instantiation required.
-
-```ts
+import { newFullTextAccess } from "@statewalker/indexer-fulltext";
+import { newVectorAccess } from "@statewalker/indexer-vector";
 import { SearchPipeline } from "@statewalker/indexer-search";
 
-const results = await new SearchPipeline({
-  index,
-  embedFn: embed,
-  expander: async (query) => [
-    { type: "lex", query },
-    { type: "vec", query: `semantic: ${query}` },
-  ],
-  reranker: async (query, candidates) =>
-    candidates.map((c, i) => ({ blockId: c.blockId, score: 1 / (i + 1) })),
-})
-  .setPrompt("distributed consensus")
-  .setTopK(10)
-  .execute();
-```
-
-Stages can be skipped (`pipeline.skip("rerank")`), inputs combined (`setTextQueries`, `setSemanticQueries`, `setEmbeddings`), and traces enabled (`setExplain(true)`).
-
-### Reranker blending
-
-`blendWithReranker()` combines initial retrieval scores with reranker scores using position-aware tiers. Top-ranked items are protected by higher retrieval weights (default: 0.75 for top-3, 0.60 for top-10, 0.40 for the rest), preventing aggressive rerankers from destabilizing high-confidence results.
-
-```ts
-import { blendWithReranker, DEFAULT_BLEND_TIERS } from "@statewalker/indexer-search";
-
-const blended = blendWithReranker(retrievalResults, rerankScores, DEFAULT_BLEND_TIERS);
-```
-
-### Structured query parsing
-
-```ts
-import { parseStructuredQuery } from "@statewalker/indexer-search";
-
-const parsed = parseStructuredQuery("lex: CAP theorem\nvec: consensus algorithms");
-// [{ type: "lex", query: "CAP theorem" }, { type: "vec", query: "consensus algorithms" }]
-```
-
-Recognised prefixes:
-
-- `lex:` — lexical/keyword query
-- `vec:` — vector/semantic query
-- `hyde:` — hypothetical document embedding query
-- `expand:` — pass-through (returns `null` for default pipeline handling)
-
-Validators (`validateLexQuery`, `validateSemanticQuery`) catch malformed queries before they reach the backend.
-
-### Intent disambiguation
-
-`extractIntentTerms()` strips stop-words from a user's intent description, and `selectBestChunk()` uses both query terms and intent terms to pick the most relevant text chunk — useful for snippet extraction and context selection.
-
-### Mocks
-
-The mock factories return deterministic implementations of `QueryExpanderFn`, `RerankerFn`, and `CitationBuilderFn`, useful for unit-testing pipeline wiring without standing up real LLM calls.
-
-```ts
-import {
-  createMockCitationBuilder,
-  createMockExpander,
-  createMockReranker,
-} from "@statewalker/indexer-search";
+const fts = newFullTextAccess("q");
+const vec = newVectorAccess("semantic");
 
 const pipeline = new SearchPipeline({
   index,
-  embedFn: embed,
-  expander: createMockExpander(),
-  reranker: createMockReranker(),
-  citationBuilder: createMockCitationBuilder(),
+  embedFn: embed, // (text) => Promise<Float32Array>
+  buildRequest: ({ topK, paths, lexQueries, embeddings }) => {
+    const request = { topK };
+    if (lexQueries.length) fts.setQuery(request, { queries: lexQueries, paths });
+    if (embeddings.length) vec.setQuery(request, { embeddings, paths });
+    return request;
+  },
+  getContent: async (blockId, path) => loadBlockText(path, blockId), // for rerank / cite
+  expander: async (prompt) => [
+    { type: "lex", query: prompt },
+    { type: "vec", query: prompt },
+  ],
+  reranker: async (query, candidates) =>
+    candidates.map((c, i) => ({ blockId: c.blockId, score: 1 / (i + 1) })),
+  onError: (stage, error) => console.warn(stage, error),
 });
+
+const entries = await pipeline
+  .setPrompt("distributed consensus")
+  .setPaths("/docs/")
+  .setTopK(10)
+  .setExplain(true)
+  .execute(); // PipelineEntry[]: { blockId, path, score, citation?, explain? }
 ```
 
-## Where the rank-fusion math lives
+Other inputs: `setTextQueries(...)`, `setSemanticQueries(...)`, `setEmbeddings(...)`, `setReranker(fn)`, and `skip("expansion" | "rerank" | "citations")`.
 
-`reciprocalRankFusion` (RRF) and the `mergeHybrid` family are backend-implementation glue and live in `@statewalker/indexer-core` (workspace-internal, not published). `SearchPipeline` does not call them directly — it issues a single `index.search(...)` call and lets each backend handle its own multi-query merge.
+Weighted blending of native scores per sub-index name:
 
-If you really need cross-query RRF outside a backend's `Index.search()` (rare), the `fanOutSearch` helper in `@statewalker/indexer-core` is available to backend authors.
+```ts
+import { weightedBlend } from "@statewalker/indexer-search";
 
-## How it is tested
-
-Tests use **vitest** and live in `test/`:
-
-| Test file | What it covers |
-|-----------|----------------|
-| `test/reranker-blend.test.ts` | Position-aware blending, tier boundaries, re-ordering, custom tiers, edge cases |
-| `test/query-parser.test.ts`   | Structured query parsing (`lex:/vec:/hyde:/expand:`), validation, error cases |
-| `test/intent.test.ts`         | Stop-word filtering, intent term extraction, chunk selection with intent weighting |
-| `test/mock.test.ts`           | Mock expander, reranker, and citation builder factory functions |
-
-Cross-backend `SemanticIndex` conformance is exercised through `@statewalker/indexer-tests`'s `semantic-index.suite.ts` (run against every conforming backend).
-
-Run tests:
-
-```bash
-pnpm test
-pnpm test:watch
+const results = [];
+for await (const r of index.search(request)) results.push(r);
+const reordered = weightedBlend(results, { q: 0.7, semantic: 0.3 }, { topK: 10 });
 ```
 
-Several algorithms (query parser, intent extraction, reranker blending) are adapted from [QMD](https://github.com/tobi/qmd) by Tobi Lutke (MIT License).
+Typed query syntax:
+
+```ts
+import { parseStructuredQuery } from "@statewalker/indexer-search/utils";
+
+parseStructuredQuery("lex: CAP theorem\nvec: consensus algorithms");
+// [{ type: "lex", query: "CAP theorem", line: 1 }, { type: "vec", query: "consensus algorithms", line: 2 }]
+parseStructuredQuery("plain question"); // null: no typed lines, use the text as a prompt
+```
+
+## Internals
+
+- **Stage failures degrade, they do not throw.** If the expander throws, the prompt is used as a lexical query (and as a semantic one when `embedFn` is set). If the reranker or citation builder throws, retrieval order or entries without citations are returned. `onError(stage, error)` is called first; without it the error is swallowed silently.
+- **Errors that do throw:** `No queries, embeddings, or prompt provided to SearchPipeline`, and `Semantic queries provided but no embedFn in pipeline config`.
+- **Rerank and cite need `getContent`.** Without it those stages are skipped without notice.
+- **Reranker blending is position-aware.** `blendWithReranker` mixes `1 / rank` with the reranker score; the retrieval weight is 0.75 for ranks 1-3, 0.60 for 4-10 and 0.40 below (`DEFAULT_BLEND_TIERS`), so a reranker cannot easily push out the top retrieval hits.
+- **Rerank keys entries by `blockId` only.** If two documents use the same block id, their rerank scores and paths can be mixed up. Use block ids that are unique across the index when reranking.
+- `weightedBlend` min-max normalises each sub-index's native score over the result set; a name whose scores are all equal falls back to `1 / position`.
+- `parseStructuredQuery` throws on an empty typed line (`Empty query after "lex:" prefix on line 2`), on mixing `expand:` with typed lines, and on mixing plain and typed lines.
+- Query parser, intent extraction and reranker blending are adapted from [QMD](https://github.com/tobi/qmd) by Tobi Lutke (MIT).
+- Dependencies: `@statewalker/indexer-api` only.
+
+## License
+
+MIT

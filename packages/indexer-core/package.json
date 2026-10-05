@@ -3,7 +3,7 @@
   "version": "0.1.1",
   "private": false,
   "type": "module",
-  "description": "Workspace-internal scaffolding shared by @statewalker/indexer-* backends. Not published.",
+  "description": "Shared code for @statewalker/indexer-* backends: composite index, RRF fusion, persistence-backed and SQL indexer builders.",
   "bugs": {
     "url": "https://github.com/statewalker/statewalker-search/issues"
   },
