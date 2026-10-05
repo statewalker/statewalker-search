@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/indexer-chunker",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "type": "module",
   "description": "Text chunking utilities used to prepare documents before indexing.",
