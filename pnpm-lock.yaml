@@ -23,10 +23,10 @@ catalogs:
       version: 1.0.68
     '@statewalker/db-api':
       specifier: ^0.1.0
-      version: 0.1.2
+      version: 0.1.3
     '@statewalker/db-duckdb-node':
       specifier: ^0.1.0
-      version: 0.1.2
+      version: 0.1.3
     '@types/node':
       specifier: ^26.6.4
       version: 26.6.4
@@ -201,7 +201,7 @@ importers:
     dependencies:
       '@statewalker/db-api':
         specifier: 'catalog:'
-        version: 0.1.2
+        version: 0.1.3
       '@statewalker/indexer-api':
         specifier: workspace:^
         version: link:../indexer-api
@@ -217,7 +217,7 @@ importers:
     devDependencies:
       '@statewalker/db-duckdb-node':
         specifier: 'catalog:'
-        version: 0.1.2
+        version: 0.1.3
       '@statewalker/indexer-tests':
         specifier: workspace:^
         version: link:../indexer-tests
@@ -932,11 +932,11 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
-  '@statewalker/db-api@0.1.2':
-    resolution: {integrity: sha512-ct9WveDk1E5FnTYxC6CIScb7oYqN0n+1pZz82Js6CoDKVZBxg2+CvgcV4qn3S2+NI/LX+u5lnxb52g9RKP1aVg==}
+  '@statewalker/db-api@0.1.3':
+    resolution: {integrity: sha512-sHWgYpMraWr5V0ee3mCT0g/aJlLGbppw7oPen9s2Gl6PV2DrEo2Xv55PQvV4UTPkS+MjQTfPfj1jjbxvEqvl5g==}
 
-  '@statewalker/db-duckdb-node@0.1.2':
-    resolution: {integrity: sha512-XgP4dkkbSspSfvVgfc2ovWbt0aotcJQT6tyzju9C74+jWcLucHDTPwKP262WbkKJdFQGv41xEZv33YjkzGhAZA==}
+  '@statewalker/db-duckdb-node@0.1.3':
+    resolution: {integrity: sha512-5kgtuZT16T2V132Yoat9ZiMDLBzthZv6KcOR3l2eiTyii9ZjX/n4bbau6W+l+Mp7B7R4Ot1nYZ6wb+beF0mgtQ==}
 
   '@turbo/darwin-64@2.11.7':
     resolution: {integrity: sha512-Z2LFOxwbiJueD1miByXJS/BrW21vv6YaQXZustty5jEX4vQYw6zyh101Sz1QO7WG0mqBzKagZ/DoAeeujI0/Sw==}
@@ -1678,8 +1678,8 @@ packages:
     resolution: {integrity: sha512-FP+p8RB8OWpF3YZBCrP5gtADmtXApB5AMLn+vdyA+PyxCjrCs00mjyUozssO33cwDeT3wNGdLxJ5M//YqtHAJw==}
     hasBin: true
 
-  nanoid@3.3.19:
-    resolution: {integrity: sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug==}
+  nanoid@3.3.20:
+    resolution: {integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -1725,8 +1725,8 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
-  postcss@8.5.28:
-    resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
+  postcss@8.5.29:
+    resolution: {integrity: sha512-49cGhUbXj8Qenv0iTMxA1cFBzxXoctpC9Ujd77t1WcbJIr6nF/eI7g/8MgxrYldFRuAXvja7xQRwavoW7kgrxQ==}
     engines: {node: ^10 || ^12 || >=14}
 
   process-nextick-args@2.0.1:
@@ -2442,12 +2442,12 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
-  '@statewalker/db-api@0.1.2': {}
+  '@statewalker/db-api@0.1.3': {}
 
-  '@statewalker/db-duckdb-node@0.1.2':
+  '@statewalker/db-duckdb-node@0.1.3':
     dependencies:
       '@duckdb/node-api': 1.5.5-r.5
-      '@statewalker/db-api': 0.1.2
+      '@statewalker/db-api': 0.1.3
 
   '@turbo/darwin-64@2.11.7':
     optional: true
@@ -3063,7 +3063,7 @@ snapshots:
     dependencies:
       minimist: 1.2.8
 
-  nanoid@3.3.19: {}
+  nanoid@3.3.20: {}
 
   normalize-path@3.0.0: {}
 
@@ -3094,9 +3094,9 @@ snapshots:
 
   picomatch@4.0.7: {}
 
-  postcss@8.5.28:
+  postcss@8.5.29:
     dependencies:
-      nanoid: 3.3.19
+      nanoid: 3.3.20
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
@@ -3329,7 +3329,7 @@ snapshots:
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
-      postcss: 8.5.28
+      postcss: 8.5.29
       rolldown: 1.2.12
       tinyglobby: 0.2.17
     optionalDependencies:
