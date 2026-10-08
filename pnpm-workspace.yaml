@@ -31,3 +31,9 @@ catalog:
 catalogs:
   peers:
     "vitest": "*"
+
+# Security fixes for transitive dependencies whose parents pin a vulnerable version.
+# Remove an entry once its parent ships a release with the fixed version.
+overrides:
+  # exceljs requires uuid ^8.3.0
+  "uuid@<11.1.1": ^11.1.1
