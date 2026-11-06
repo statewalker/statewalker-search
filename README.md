@@ -91,7 +91,6 @@ Packages are published to npm from CI with changesets. After CI passes on `main`
 | `pnpm-workspace.yaml` | Workspace globs and the dependency catalog |
 | `biome.json` | Lint and format rules |
 | `turbo.json` | Task graph |
-| `CONTEXT.md` | Vocabulary of the indexer contract |
 
 ## License
 
