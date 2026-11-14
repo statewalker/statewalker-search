@@ -101,8 +101,7 @@ export const pgliteFtsDialect: SqlFtsDialect = {
 
 /**
  * PGlite vector dialect — uses pgvector's HNSW index with the `<=>` cosine-distance operator.
- * Embeddings are currently bound as stringified array literals — Phase 9 switches to parameter-bound
- * driver-native arrays.
+ * Embeddings are bound as stringified array literals.
  */
 export const pgliteVectorDialect: SqlVectorDialect = {
   createTableDdl({ tableName, indexName, info }) {

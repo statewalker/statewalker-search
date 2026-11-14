@@ -53,7 +53,7 @@ export function newFullTextAccess(name: string): FullTextAccess {
       return binding.index as FullTextIndex;
     },
     tryGet(index: Index): FullTextIndex | undefined {
-      return (index.getBinding(name)?.index as FullTextIndex | undefined) ?? undefined;
+      return index.getBinding(name)?.index as FullTextIndex | undefined;
     },
     setConfig(params: CreateIndexParams, config: FullTextConfig): void {
       setFullTextConfig(params, name, config);

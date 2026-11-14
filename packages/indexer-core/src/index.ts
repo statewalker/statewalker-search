@@ -1,5 +1,5 @@
-// @statewalker/indexer-core — workspace-internal scaffolding shared by @statewalker/indexer-* backends.
-// Not published to npm. Consumed via workspace:* by sibling backend packages only.
+// @statewalker/indexer-core — code shared by the @statewalker/indexer-* backends: composite index,
+// RRF, and the persistence-backed and SQL indexer builders. Published to npm for backend authors.
 
 export { toAsyncIterable } from "./async.js";
 export { compositeKey } from "./composite-key.js";

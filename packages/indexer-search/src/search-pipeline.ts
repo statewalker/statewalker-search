@@ -268,7 +268,7 @@ export class SearchPipeline {
     }
 
     // 5. CITE — optional; needs `getContent` to fetch block text.
-    if (citationBuilder && !this._skip.has("citations") && entries.length > 0 && getContent) {
+    if (citationBuilder && entries.length > 0 && getContent) {
       const queryForCite = this._prompt ?? lexQueries[0] ?? vecQueries[0] ?? "";
       try {
         const citations = await citationBuilder(queryForCite, entries, async (blockId) => {
