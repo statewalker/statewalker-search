@@ -37,7 +37,7 @@ export function newVectorAccess(name: string): VectorAccess {
       return binding.index as VectorIndex;
     },
     tryGet(index: Index): VectorIndex | undefined {
-      return (index.getBinding(name)?.index as VectorIndex | undefined) ?? undefined;
+      return index.getBinding(name)?.index as VectorIndex | undefined;
     },
     setConfig(params: CreateIndexParams, config: VectorConfig): void {
       setVectorConfig(params, name, config);

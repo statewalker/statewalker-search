@@ -122,8 +122,7 @@ export const duckdbFtsDialect: SqlFtsDialect = {
  * DuckDB vector dialect.
  *
  * Uses the `vss` extension's HNSW index with `array_cosine_distance` for cosine ANN search.
- * Embeddings are currently bound as stringified array literals — Phase 9 switches to parameter-bound
- * driver-native arrays for correctness and ingest speed.
+ * Embeddings are bound as stringified array literals.
  */
 export const duckdbVectorDialect: SqlVectorDialect = {
   createTableDdl({ tableName, indexName, info }) {
