@@ -82,9 +82,16 @@ export function runRrfBlendingSuite(name: string, options: RrfSuiteOptions): voi
       expect(results.length).toBeGreaterThan(0);
       // RRF score for rank i is 1 / (k + (i+1)) with k = 60 in the core impl;
       // all scores will be < 1 and strictly decreasing across distinct ranks.
+      expect(results).toHaveLength(3);
       for (const r of results) {
         expect(r.score).toBeLessThan(1);
         expect(r.score).toBeGreaterThan(0);
+        // Not native pass-through: the fused score differs from the sub-index's own score.
+        expect(r.score).not.toBe(getSubResult<ScoredHit>(r, "q")?.score);
+      }
+      // One list fuses to strictly decreasing scores, rank by rank.
+      for (let i = 1; i < results.length; i++) {
+        expect(results[i]?.score).toBeLessThan(results[i - 1]?.score ?? Infinity);
       }
       // Sub-result for the single active name carries the native score.
       const first = results[0];
@@ -101,7 +108,7 @@ export function runRrfBlendingSuite(name: string, options: RrfSuiteOptions): voi
         subQueries: { q: buildQuery({ topK: 2 }) },
       };
       const results = await collect(index.search(request));
-      expect(results.length).toBeLessThanOrEqual(2);
+      expect(results).toHaveLength(2);
     });
 
     it("top-level topK truncates the fused output", async () => {
@@ -110,7 +117,7 @@ export function runRrfBlendingSuite(name: string, options: RrfSuiteOptions): voi
         subQueries: { q: buildQuery({}) },
       };
       const results = await collect(index.search(request));
-      expect(results.length).toBeLessThanOrEqual(1);
+      expect(results).toHaveLength(1);
     });
 
     it("top-level paths scope a sub-query that sets no paths of its own", async () => {

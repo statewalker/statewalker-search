@@ -75,9 +75,9 @@ export function runVectorConformanceSuite(
       expect(await index.getSize()).toBe(1);
     });
 
-    it("serialise / loadFrom round-trips when persistable", async () => {
+    it("serialise / loadFrom round-trips when persistable", async (ctx) => {
       const index = provider.create(config);
-      if (!isPersistable(index)) return;
+      if (!isPersistable(index)) return ctx.skip("the sub-index is not persistable");
       const dim = config.dimensionality;
       const v = unit(...Array.from({ length: dim }, (_, i) => (i === 0 ? 1 : 0)));
       await index.addDocument([{ path: "/d/1", blockId: "b1", embedding: v }]);
@@ -97,7 +97,7 @@ export function runVectorConformanceSuite(
       expect(entries.length).toBeGreaterThan(0);
 
       const restored = provider.create(config);
-      if (!isPersistable(restored)) return;
+      if (!isPersistable(restored)) throw new Error("the restored sub-index is not persistable");
       await restored.loadFrom(entries);
       const hits = await collect(restored.search({ embeddings: [v], topK: 10 }));
       expect(hits.map((h) => h.blockId)).toEqual(["b1"]);

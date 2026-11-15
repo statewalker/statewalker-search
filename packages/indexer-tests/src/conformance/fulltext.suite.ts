@@ -105,9 +105,9 @@ export function runFullTextConformanceSuite(
       expect(hits.map((h) => h.blockId)).toEqual(["b2"]);
     });
 
-    it("serialise / loadFrom round-trips when persistable", async () => {
+    it("serialise / loadFrom round-trips when persistable", async (ctx) => {
       const index = provider.create(config);
-      if (!isPersistable(index)) return; // optional opt-in
+      if (!isPersistable(index)) return ctx.skip("the sub-index is not persistable"); // optional opt-in
       await index.addDocument([{ path: "/d/1", blockId: "b1", content: "marker phrase" }]);
       await index.flush();
 
@@ -126,7 +126,7 @@ export function runFullTextConformanceSuite(
       expect(entries.length).toBeGreaterThan(0);
 
       const restored = provider.create(config);
-      if (!isPersistable(restored)) return;
+      if (!isPersistable(restored)) throw new Error("the restored sub-index is not persistable");
       await restored.loadFrom(entries);
       const hits = await collect(restored.search({ queries: ["marker"], topK: 10 }));
       expect(hits.map((h) => h.blockId)).toEqual(["b1"]);
