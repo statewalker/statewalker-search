@@ -201,6 +201,17 @@ export function runLifecycleConformanceSuite(name: string, options: LifecycleSui
       }
     });
 
+    it("a vector batch with one wrong-size block writes nothing", async () => {
+      const idx = await indexer.createIndex({ name: "a", subIndexes: { v: vectorConfig } });
+      await expect(
+        vec.get(idx).addDocument([
+          { path: "/d/1" as DocumentPath, blockId: "0", embedding: new Float32Array([1, 0, 0]) },
+          { path: "/d/2" as DocumentPath, blockId: "0", embedding: new Float32Array([1, 0]) },
+        ]),
+      ).rejects.toThrow("Expected dimensionality 3, got 2");
+      expect(await vec.get(idx).getSize()).toBe(0);
+    });
+
     it("data written through concurrently opened handles survives a save and reload", async () => {
       const createWithPersistence = factory.createWithPersistence;
       if (!createWithPersistence) return; // the backend stores everything in its database

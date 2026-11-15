@@ -135,6 +135,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
   ): Promise<void> {
     const sp = subPrefix(indexPrefix, subName);
     if (spec.type === FULL_TEXT_TYPE) {
+      if (dialect.fts.drop) await dialect.fts.drop({ db, tableName: `idx_${sp}_fts` });
       await db.exec(`DROP TABLE IF EXISTS idx_${sp}_fts`);
     } else if (spec.type === VECTOR_TYPE) {
       await db.exec(`DROP INDEX IF EXISTS idx_${sp}_vec_hnsw`);

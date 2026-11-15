@@ -38,6 +38,13 @@ export interface SqlFtsDialect {
   rebuild?(opts: { db: SqlDb; tableName: string; info: FullTextIndexInfo }): Promise<void>;
 
   /**
+   * Optional hook that removes the dialect's auxiliary FTS structures for a table (e.g. DuckDB's
+   * `fts_main_<table>` schema). Runs before the table is dropped, by `deleteIndex` and whenever the
+   * indexer drops a full-text sub-index's table.
+   */
+  drop?(opts: { db: SqlDb; tableName: string }): Promise<void>;
+
+  /**
    * Execute a lexical search for a single query string. The base iterates `queries[]` and merges by best score.
    */
   search(opts: {
@@ -258,6 +265,7 @@ export function createSqlFtsRetriever(opts: SqlFtsRetrieverOptions): FullTextInd
     async deleteIndex(): Promise<void> {
       ensureOpen();
       closed = true;
+      if (dialect.drop) await dialect.drop({ db, tableName });
       await db.exec(`DROP TABLE IF EXISTS ${tableName}`);
     },
   };

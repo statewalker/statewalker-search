@@ -76,6 +76,11 @@ export const duckdbFtsDialect: SqlFtsDialect = {
     ];
   },
 
+  // Dropping the base table leaves the fts extension's `fts_main_<table>` schema behind.
+  async drop({ db, tableName }) {
+    await db.exec(`DROP SCHEMA IF EXISTS ${ftsMainSchema(tableName)} CASCADE`);
+  },
+
   async rebuild({ db, tableName, info }) {
     const stemmer = resolveDuckDbStemmer(info.language);
     await db.exec(

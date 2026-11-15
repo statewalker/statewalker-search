@@ -164,18 +164,20 @@ export function createCompositeIndex(opts: CompositeIndexOptions): Index {
     async close(options?: { force?: boolean }): Promise<void> {
       if (closed) return;
       closed = true;
-      try {
-        if (onClose) await onClose();
-      } finally {
-        for (const b of bindings.values()) await b.index.close(options);
-      }
+      // Every step runs even when an earlier one fails; the errors are reported together.
+      await runAll([
+        ...(onClose ? [onClose] : []),
+        ...[...bindings.values()].map((b) => () => b.index.close(options)),
+      ]);
     },
 
     async deleteIndex(): Promise<void> {
       ensureOpen();
-      for (const b of bindings.values()) await b.index.deleteIndex();
-      if (onDeleteIndex) await onDeleteIndex();
       closed = true;
+      await runAll([
+        ...[...bindings.values()].map((b) => () => b.index.deleteIndex()),
+        ...(onDeleteIndex ? [onDeleteIndex] : []),
+      ]);
     },
   };
 }
@@ -189,4 +191,22 @@ function withDefaultPaths(query: unknown, paths: SearchRequest["paths"]): unknow
   if (query === null || typeof query !== "object" || Array.isArray(query)) return query;
   if ((query as { paths?: unknown }).paths !== undefined) return query;
   return { ...query, paths };
+}
+
+/**
+ * Runs every step in order even when some fail, then rethrows: the error itself when one step
+ * failed, an `AggregateError` with all of them when several did.
+ */
+async function runAll(steps: Array<() => Promise<unknown>>): Promise<void> {
+  const errors: unknown[] = [];
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1)
+    throw new AggregateError(errors, `${errors.length} sub-index operations failed`);
 }
