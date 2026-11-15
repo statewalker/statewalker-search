@@ -100,6 +100,8 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
   // Sub-index names skipped at load via `{skip: true}`. Per D9, their saved
   // manifest entries + bytes must survive the next save unchanged.
   const skippedSubsPerIndex = new Map<string, Set<string>>();
+  // Instances whose close has begun (the composite calls onClose first).
+  const closedInstances = new WeakSet<Index>();
 
   let initialized = false;
   let initPromise: Promise<void> | null = null;
@@ -345,6 +347,8 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
       // Skipped when the instance is no longer the open one (the indexer is closing it, or
       // createIndex/deleteIndex already replaced or removed it).
       onClose: async () => {
+        // Synchronously, before any await: deleteIndex must not call a closed instance.
+        closedInstances.add(index);
         if (closed || liveIndexes.get(name) !== index) return;
         await runExclusive(async () => {
           if (!closed && liveIndexes.get(name) === index) await parkIndex(name, index);
@@ -425,9 +429,14 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
         await ensureInitialized();
         // An open instance deletes itself (its sub-indexes, then its state here, through
         // onDeleteIndex); otherwise its saved state is dropped directly.
+        // An instance already closed (a failed park, or a close racing this call) is only
+        // forgotten: calling its deleteIndex would throw.
         const live = liveIndexes.get(name);
-        if (live) await live.deleteIndex();
-        forgetIndex(name);
+        try {
+          if (live && !closedInstances.has(live)) await live.deleteIndex();
+        } finally {
+          forgetIndex(name);
+        }
       });
     },
 
