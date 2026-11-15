@@ -59,12 +59,12 @@ export const pgliteFtsDialect: SqlFtsDialect = {
 
   async search({ db, tableName, docsTable, info, query, paths, topK }) {
     const pgLang = resolvePgLanguage(info.language);
-    // Strip only tsquery-significant punctuation; keep Unicode letters/digits so
+    // Keep only words: split on everything that is not a Unicode letter, digit or `_`, so no
+    // tsquery operator (`& | ! ( ) : < > <-> <N>`, quotes, backslash) reaches `to_tsquery`, and
     // non-ASCII languages (Russian, French, CJK, …) reach the FTS engine intact.
     const validWords = query
       .toLowerCase()
-      .split(/\s+/)
-      .map((w) => w.replace(/[&|!():'"\\]/g, ""))
+      .split(/[^\p{L}\p{N}_]+/u)
       .filter((w) => w.length > 0);
     if (validWords.length === 0) return [];
 

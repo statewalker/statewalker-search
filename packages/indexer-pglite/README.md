@@ -85,7 +85,7 @@ idx_<index>_<sub>_vec(doc_id, block_id, embedding vector(dim))                  
 
 ### Queries, scores and languages
 
-- A full-text query is lowercased, split on whitespace, stripped of tsquery operators (`& | ! ( ) : ' " \`) and joined with `|` (OR). Score is `ts_rank_cd`. With several `queries` in one sub-query, each block keeps its best score across them (scores are not summed).
+- A full-text query is lowercased, split into words on every character that is not a Unicode letter, digit or `_` (so no tsquery operator such as `&`, `|`, `<->` or `:` gets through, and `foo:bar` becomes `foo | bar`), and joined with `|` (OR). Score is `ts_rank_cd`. With several `queries` in one sub-query, each block keeps its best score across them (scores are not summed).
 - Vector `score` is `1 - (embedding <=> query)` (cosine). Embeddings are sent as text literals cast to `vector(dim)`.
 - `language` accepts ISO-639-1 codes (`en`, `fr`, `de`, `es`, `it`, `pt`, `nl`, `ru`, `sv`, `no`, `da`, `fi`, `hu`, `ro`, `tr`), `simple`, or the matching Postgres config names (`english`, ...). Anything else throws `pglite FTS: unsupported language "<x>" (must be an ISO-639-1 code or a Postgres text-search config name)`. The value is put into SQL, which is why it is checked against this list.
 - Default retrieval depth is `topK = 100` per sub-query.
