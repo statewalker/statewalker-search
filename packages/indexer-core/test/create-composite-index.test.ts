@@ -233,4 +233,38 @@ describe("createCompositeIndex — open binding registry, name-keyed dispatch", 
     expect(a.index.searchCalls).toEqual([{ q: "x", paths: [docA] }]);
     expect(b.index.searchCalls).toEqual([{ q: "y", paths: [docB] }]);
   });
+
+  it("close() runs onClose once, after refusing calls and before the bindings close", async () => {
+    const a = binding<QueryA, HitA>("a", TYPE_A, []);
+    const order: string[] = [];
+    let searchError: unknown;
+    (a.index.close as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      order.push("binding.close");
+    });
+    const idx = createCompositeIndex({
+      name: "x",
+      bindings: [a],
+      onClose: async () => {
+        order.push("onClose");
+        searchError = await collect(idx.search({ topK: 1 })).catch((e) => e);
+      },
+    });
+    await idx.close();
+    await idx.close();
+    expect(order).toEqual(["onClose", "binding.close"]);
+    expect(String(searchError)).toMatch(/closed/);
+  });
+
+  it("close() still closes the bindings when onClose throws", async () => {
+    const a = binding<QueryA, HitA>("a", TYPE_A, []);
+    const idx = createCompositeIndex({
+      name: "x",
+      bindings: [a],
+      onClose: async () => {
+        throw new Error("hook failed");
+      },
+    });
+    await expect(idx.close()).rejects.toThrow("hook failed");
+    expect(a.index.close).toHaveBeenCalledOnce();
+  });
 });

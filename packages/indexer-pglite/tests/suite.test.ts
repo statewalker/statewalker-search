@@ -20,6 +20,7 @@ import { newFullTextAccess } from "@statewalker/indexer-fulltext";
 import {
   runFullTextMultiWordSuite,
   runKernelConformanceSuite,
+  runLifecycleConformanceSuite,
   runMultiInstanceConformanceSuite,
   runRrfBlendingSuite,
 } from "@statewalker/indexer-tests";
@@ -49,6 +50,12 @@ runKernelConformanceSuite("PGLite Indexer", {
   factory,
   primaryConfig: ftConfig,
   secondaryConfig: vecConfig,
+});
+
+runLifecycleConformanceSuite("PGLite Indexer", {
+  factory: factory,
+  fullTextConfig: ftConfig,
+  vectorConfig: vecConfig,
 });
 
 const ftAccess = newFullTextAccess("q");
