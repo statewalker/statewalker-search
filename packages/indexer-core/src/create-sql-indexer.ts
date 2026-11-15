@@ -24,6 +24,7 @@ import type {
   Index,
   Indexer,
   IndexInfo,
+  Metadata,
 } from "@statewalker/indexer-api";
 import type { FullTextConfig, FullTextIndexInfo } from "@statewalker/indexer-fulltext";
 import { FULL_TEXT_TYPE } from "@statewalker/indexer-fulltext";
@@ -70,6 +71,8 @@ export interface SqlIndexerOptions {
 interface IndexManifest {
   /** Per-sub-index spec keyed by sub-index name; each carries `type` discriminator + config. */
   subIndexes: Record<string, { type: string } & Record<string, unknown>>;
+  /** Index-level metadata from `createIndex` (absent in manifests written before it was saved). */
+  metadata?: Metadata;
 }
 
 const MANIFEST_TABLE = "__indexer_manifest";
@@ -277,9 +280,11 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     indexPrefix: string,
     docsTable: string,
     bindings: AnySubIndexBinding[],
+    metadata: Metadata | undefined,
   ): Index {
     const index: Index = createCompositeIndex({
       name,
+      metadata,
       bindings,
       // After the bound sub-indexes dropped their tables: drop the tables of every
       // sub-index in the manifest (skipped ones too), the docs table and the entry.
@@ -316,7 +321,9 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
   return {
     async getIndexNames(): Promise<IndexInfo[]> {
       ensureOpen();
-      return [...manifest.keys()].map((name) => ({ name }));
+      return [...manifest.entries()].map(([name, entry]) =>
+        entry.metadata !== undefined ? { name, metadata: entry.metadata } : { name },
+      );
     },
 
     createIndex(params: CreateIndexParams): Promise<Index> {
@@ -338,18 +345,18 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
 
         const { bindings, effectiveSpec } = await buildBindings(indexPrefix, docsTable, subIndexes);
 
+        const entry: IndexManifest = {
+          subIndexes: effectiveSpec,
+          ...(metadata !== undefined ? { metadata } : {}),
+        };
         await db.query(`INSERT INTO ${MANIFEST_TABLE} (name, config) VALUES ($1, $2)`, [
           name,
-          JSON.stringify({ subIndexes: effectiveSpec } satisfies IndexManifest),
+          JSON.stringify(entry),
         ]);
 
-        const index = buildCompositeWithHooks(name, indexPrefix, docsTable, bindings);
-        // Attach metadata if supplied — composite stores it.
-        if (metadata !== undefined) {
-          (index as { metadata?: unknown }).metadata = metadata;
-        }
+        const index = buildCompositeWithHooks(name, indexPrefix, docsTable, bindings, metadata);
         indexes.set(name, index);
-        manifest.set(name, { subIndexes: effectiveSpec });
+        manifest.set(name, entry);
         return index;
       });
     },
@@ -377,14 +384,21 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
 
         // If load actions changed the spec (reinit), persist the new spec.
         if (JSON.stringify(effectiveSpec) !== JSON.stringify(entry.subIndexes)) {
-          manifest.set(name, { subIndexes: effectiveSpec });
+          const updated: IndexManifest = { ...entry, subIndexes: effectiveSpec };
+          manifest.set(name, updated);
           await db.query(`UPDATE ${MANIFEST_TABLE} SET config = $1 WHERE name = $2`, [
-            JSON.stringify({ subIndexes: effectiveSpec } satisfies IndexManifest),
+            JSON.stringify(updated),
             name,
           ]);
         }
 
-        const index = buildCompositeWithHooks(name, indexPrefix, docsTable, bindings);
+        const index = buildCompositeWithHooks(
+          name,
+          indexPrefix,
+          docsTable,
+          bindings,
+          entry.metadata,
+        );
         indexes.set(name, index);
         return index;
       });

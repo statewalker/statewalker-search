@@ -55,6 +55,7 @@ export const myProvider: VectorProvider = {
 
 - `setVectorConfig` writes `params.subIndexes[name] = { type: "vector", ...config }`.
 - `VectorBlock.embedding` and `VectorQuery.embeddings` are `Float32Array`. Their length must equal `dimensionality`; all current backends throw `Expected dimensionality 384, got 768` (with your numbers) on `addDocument` and on `search` otherwise.
+- **Block `metadata` is kept only in memory.** `MemVectorIndex` (the in-memory backends) stores `VectorBlock.metadata` and returns it from `getDocumentsBlocks`; DuckDB, PGlite and SQLite store only the path, block id and embedding, so `getDocumentsBlocks` returns blocks without `metadata`. Keep per-block metadata in a full-text sub-index or your own store when you use a SQL backend.
 - `VectorQuery` is `{ embeddings, topK?, paths? }`. With several embeddings, every current backend keeps each block's best similarity across them (not a sum). `topK` here is what the sub-index uses (the top-level `topK` only cuts the fused list). Without `paths`, the sub-query gets the top-level `paths`.
 - **A zero query vector has no direction.** Cosine similarity is undefined for it, and backends differ: the in-memory index and SQLite score every block 0, DuckDB scores -1. Do not search with an all-zero embedding.
 - `VectorResult` is `{ path, blockId, score }` with a similarity score (cosine in all current backends).
