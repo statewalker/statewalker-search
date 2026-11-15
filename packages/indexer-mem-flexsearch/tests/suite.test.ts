@@ -16,6 +16,7 @@ import {
   runFullTextConformanceSuite,
   runFullTextMultiWordSuite,
   runKernelConformanceSuite,
+  runLifecycleConformanceSuite,
   runMultiInstanceConformanceSuite,
   runRrfBlendingSuite,
   runVectorConformanceSuite,
@@ -44,6 +45,12 @@ runKernelConformanceSuite("FlexSearch + MemVector", {
   factory,
   primaryConfig: ftConfig,
   secondaryConfig: vecConfig,
+});
+
+runLifecycleConformanceSuite("FlexSearch + MemVector", {
+  factory: factory,
+  fullTextConfig: ftConfig,
+  vectorConfig: vecConfig,
 });
 
 // Per-modality suites — driven directly by the Providers.

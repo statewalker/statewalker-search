@@ -108,9 +108,35 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     if (closed) throw new Error("Indexer is closed");
   }
 
+  /** Evict and close the open instance of an Index, if any. */
+  async function closeLive(name: string): Promise<void> {
+    const live = indexes.get(name);
+    if (!live) return;
+    indexes.delete(name);
+    try {
+      await live.close();
+    } catch {
+      /* already closed or failing to close: the tables are dropped anyway */
+    }
+  }
+
   async function createDocsTable(prefix: string): Promise<string> {
     for (const stmt of dialect.docsTableDdl(prefix)) await db.exec(stmt);
     return `idx_${prefix}_docs`;
+  }
+
+  async function dropSubIndexTables(
+    indexPrefix: string,
+    subName: string,
+    spec: { type: string },
+  ): Promise<void> {
+    const sp = subPrefix(indexPrefix, subName);
+    if (spec.type === FULL_TEXT_TYPE) {
+      await db.exec(`DROP TABLE IF EXISTS idx_${sp}_fts`);
+    } else if (spec.type === VECTOR_TYPE) {
+      await db.exec(`DROP INDEX IF EXISTS idx_${sp}_vec_hnsw`);
+      await db.exec(`DROP TABLE IF EXISTS idx_${sp}_vec`);
+    }
   }
 
   async function dropIndexTables(
@@ -119,13 +145,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
   ): Promise<void> {
     // Drop each sub-index's table first, then the shared docs table, then any extras.
     for (const [subName, spec] of Object.entries(subEntries)) {
-      const sp = subPrefix(indexPrefix, subName);
-      if (spec.type === FULL_TEXT_TYPE) {
-        await db.exec(`DROP TABLE IF EXISTS idx_${sp}_fts`);
-      } else if (spec.type === VECTOR_TYPE) {
-        await db.exec(`DROP INDEX IF EXISTS idx_${sp}_vec_hnsw`);
-        await db.exec(`DROP TABLE IF EXISTS idx_${sp}_vec`);
-      }
+      await dropSubIndexTables(indexPrefix, subName, spec);
     }
     await db.exec(`DROP TABLE IF EXISTS idx_${indexPrefix}_docs`);
     if (dialect.extraCleanup) {
@@ -152,6 +172,24 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     const bindings: AnySubIndexBinding[] = [];
     const effectiveSpec: Record<string, { type: string } & Record<string, unknown>> = {};
     const knownTypes = [FULL_TEXT_TYPE, VECTOR_TYPE];
+    const missingTypeError = (subName: string, type: string) =>
+      new Error(
+        `Cannot load index: sub-index "${subName}" requires modality "${type}" but only [${knownTypes
+          .map((t) => `"${t}"`)
+          .join(", ")}] are registered.`,
+      );
+
+    // Under "throw", fail before any reinit drops a table.
+    if (onMissing === "throw") {
+      for (const [subName, savedSpec] of Object.entries(subIndexes)) {
+        const action = optActions?.[subName];
+        if (action && "skip" in action) continue;
+        const type = action ? action.type : savedSpec.type;
+        if (!knownTypes.includes(type as typeof FULL_TEXT_TYPE)) {
+          throw missingTypeError(subName, type);
+        }
+      }
+    }
 
     for (const [subName, savedSpec] of Object.entries(subIndexes)) {
       const action = optActions?.[subName];
@@ -161,34 +199,12 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
         continue;
       }
 
-      let effType: string;
-      let effConfig: Record<string, unknown>;
-      if (action && !("skip" in action)) {
-        const { type, ...rest } = action;
-        effType = type;
-        effConfig = rest;
-        // Reinit: drop existing tables for this sub-index, will be recreated below.
-        const sp = subPrefix(indexPrefix, subName);
-        if (savedSpec.type === FULL_TEXT_TYPE) {
-          await db.exec(`DROP TABLE IF EXISTS idx_${sp}_fts`);
-        } else if (savedSpec.type === VECTOR_TYPE) {
-          await db.exec(`DROP INDEX IF EXISTS idx_${sp}_vec_hnsw`);
-          await db.exec(`DROP TABLE IF EXISTS idx_${sp}_vec`);
-        }
-      } else {
-        const { type, ...rest } = savedSpec;
-        effType = type;
-        effConfig = rest;
-      }
+      const reinit = action !== undefined && !("skip" in action);
+      const { type: effType, ...effConfig } = reinit ? action : savedSpec;
 
+      // Check the type before touching any table: an unsupported reinit must not drop data.
       if (!knownTypes.includes(effType as typeof FULL_TEXT_TYPE)) {
-        if (onMissing === "throw") {
-          throw new Error(
-            `Cannot load index: sub-index "${subName}" requires modality "${effType}" but only [${knownTypes
-              .map((t) => `"${t}"`)
-              .join(", ")}] are registered.`,
-          );
-        }
+        if (onMissing === "throw") throw missingTypeError(subName, effType);
         const g = globalThis as { console?: { warn(...args: unknown[]): void } };
         g.console?.warn(
           `Sub-index "${subName}" (type "${effType}") has no matching dialect; skipping.`,
@@ -196,6 +212,9 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
         effectiveSpec[subName] = savedSpec;
         continue;
       }
+
+      // Reinit: drop the existing tables for this sub-index; they are recreated below.
+      if (reinit) await dropSubIndexTables(indexPrefix, subName, savedSpec);
 
       const sp = subPrefix(indexPrefix, subName);
       effectiveSpec[subName] = { type: effType, ...effConfig };
@@ -244,24 +263,32 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     return { bindings, effectiveSpec };
   }
 
+  /** Drop every table of an Index named in its manifest entry, and the entry itself. */
+  async function deleteIndexData(name: string): Promise<void> {
+    const entry = manifest.get(name);
+    await dropIndexTables(sanitizePrefix(name), entry?.subIndexes ?? {});
+    await db.query(`DELETE FROM ${MANIFEST_TABLE} WHERE name = $1`, [name]);
+    manifest.delete(name);
+  }
+
   function buildCompositeWithHooks(
     name: string,
     indexPrefix: string,
     docsTable: string,
     bindings: AnySubIndexBinding[],
   ): Index {
-    return createCompositeIndex({
+    const index: Index = createCompositeIndex({
       name,
       bindings,
-      // Drop the docs table after every sub-index's deleteIndex has run.
+      // After the bound sub-indexes dropped their tables: drop the tables of every
+      // sub-index in the manifest (skipped ones too), the docs table and the entry.
       onDeleteIndex: async () => {
-        await db.exec(`DROP TABLE IF EXISTS ${docsTable}`);
-        if (dialect.extraCleanup) {
-          for (const stmt of dialect.extraCleanup(indexPrefix)) await db.exec(stmt);
-        }
-        await db.query(`DELETE FROM ${MANIFEST_TABLE} WHERE name = $1`, [name]);
-        manifest.delete(name);
-        indexes.delete(name);
+        if (indexes.get(name) === index) indexes.delete(name);
+        await deleteIndexData(name);
+      },
+      // A closed instance leaves the cache, so getIndex opens a new one.
+      onClose: async () => {
+        if (indexes.get(name) === index) indexes.delete(name);
       },
       // Reclaim doc rows orphaned by the per-sub-index DELETEs.
       onAfterDelete: async () => {
@@ -282,6 +309,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
         await db.exec(`DELETE FROM ${docsTable} d WHERE NOT (${existsClauses})`);
       },
     });
+    return index;
   }
 
   return {
@@ -300,20 +328,8 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
 
         if (indexes.has(name) || manifest.has(name)) {
           if (!overwrite) throw new Error(`Index "${name}" already exists`);
-          const live = indexes.get(name);
-          if (live) {
-            try {
-              await live.close();
-            } catch {
-              /* ignore */
-            }
-            indexes.delete(name);
-          }
-          const prevSpec = manifest.get(name)?.subIndexes ?? {};
-          const prefix = sanitizePrefix(name);
-          await dropIndexTables(prefix, prevSpec);
-          await db.query(`DELETE FROM ${MANIFEST_TABLE} WHERE name = $1`, [name]);
-          manifest.delete(name);
+          await closeLive(name);
+          await deleteIndexData(name);
         }
 
         const indexPrefix = sanitizePrefix(name);
@@ -337,36 +353,40 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
       });
     },
 
-    async getIndex(name: string, options?: GetIndexOptions): Promise<Index | null> {
-      ensureOpen();
-      const cached = indexes.get(name);
-      if (cached) return cached;
+    getIndex(name: string, options?: GetIndexOptions): Promise<Index | null> {
+      // Serialised with the other mutating calls, so concurrent first opens open once
+      // (a second reinit would otherwise drop tables the first just wrote).
+      return runExclusive(async () => {
+        ensureOpen();
+        const cached = indexes.get(name);
+        if (cached) return cached;
 
-      const entry = manifest.get(name);
-      if (!entry) return null;
+        const entry = manifest.get(name);
+        if (!entry) return null;
 
-      const indexPrefix = sanitizePrefix(name);
-      const docsTable = await createDocsTable(indexPrefix);
+        const indexPrefix = sanitizePrefix(name);
+        const docsTable = await createDocsTable(indexPrefix);
 
-      const { bindings, effectiveSpec } = await buildBindings(
-        indexPrefix,
-        docsTable,
-        entry.subIndexes,
-        options,
-      );
+        const { bindings, effectiveSpec } = await buildBindings(
+          indexPrefix,
+          docsTable,
+          entry.subIndexes,
+          options,
+        );
 
-      // If load actions changed the spec (reinit), persist the new spec.
-      if (JSON.stringify(effectiveSpec) !== JSON.stringify(entry.subIndexes)) {
-        manifest.set(name, { subIndexes: effectiveSpec });
-        await db.query(`UPDATE ${MANIFEST_TABLE} SET config = $1 WHERE name = $2`, [
-          JSON.stringify({ subIndexes: effectiveSpec } satisfies IndexManifest),
-          name,
-        ]);
-      }
+        // If load actions changed the spec (reinit), persist the new spec.
+        if (JSON.stringify(effectiveSpec) !== JSON.stringify(entry.subIndexes)) {
+          manifest.set(name, { subIndexes: effectiveSpec });
+          await db.query(`UPDATE ${MANIFEST_TABLE} SET config = $1 WHERE name = $2`, [
+            JSON.stringify({ subIndexes: effectiveSpec } satisfies IndexManifest),
+            name,
+          ]);
+        }
 
-      const index = buildCompositeWithHooks(name, indexPrefix, docsTable, bindings);
-      indexes.set(name, index);
-      return index;
+        const index = buildCompositeWithHooks(name, indexPrefix, docsTable, bindings);
+        indexes.set(name, index);
+        return index;
+      });
     },
 
     async hasIndex(name: string): Promise<boolean> {
@@ -374,45 +394,39 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
       return manifest.has(name);
     },
 
-    async deleteIndex(name: string): Promise<void> {
-      ensureOpen();
-      const live = indexes.get(name);
-      if (live) {
-        try {
-          await live.deleteIndex();
-        } catch {
-          // composite's onDeleteIndex already drops tables + manifest row.
-        }
-        indexes.delete(name);
-        manifest.delete(name);
-        return;
-      }
-      const entry = manifest.get(name);
-      if (!entry) return;
-      const indexPrefix = sanitizePrefix(name);
-      await dropIndexTables(indexPrefix, entry.subIndexes);
-      await db.query(`DELETE FROM ${MANIFEST_TABLE} WHERE name = $1`, [name]);
-      manifest.delete(name);
+    deleteIndex(name: string): Promise<void> {
+      return runExclusive(async () => {
+        ensureOpen();
+        // Close the open instance (if any), then drop every table the manifest names:
+        // this works after index.close() and covers sub-indexes skipped at open.
+        await closeLive(name);
+        if (!manifest.has(name)) return;
+        await deleteIndexData(name);
+      });
     },
 
-    async flush(): Promise<void> {
-      ensureOpen();
-      for (const idx of indexes.values()) await idx.flush();
+    flush(): Promise<void> {
+      return runExclusive(async () => {
+        ensureOpen();
+        for (const idx of indexes.values()) await idx.flush();
+      });
     },
 
-    async close(): Promise<void> {
-      if (closed) return;
-      closed = true;
-      for (const idx of indexes.values()) {
-        try {
-          await idx.close();
-        } catch {
-          /* */
+    close(): Promise<void> {
+      return runExclusive(async () => {
+        if (closed) return;
+        closed = true;
+        for (const idx of [...indexes.values()]) {
+          try {
+            await idx.close();
+          } catch {
+            /* */
+          }
         }
-      }
-      indexes.clear();
-      manifest.clear();
-      if (onClose) await onClose();
+        indexes.clear();
+        manifest.clear();
+        if (onClose) await onClose();
+      });
     },
   } satisfies Indexer;
 }
