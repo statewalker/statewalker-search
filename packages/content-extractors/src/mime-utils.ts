@@ -18,8 +18,9 @@ const MIME_MAP: Record<string, string> = {
  * Content-Type header and need a MIME type for the registry fallback path.
  */
 export function getMimeType(path: string): string | undefined {
-  const dotIndex = path.lastIndexOf(".");
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const dotIndex = name.lastIndexOf(".");
   if (dotIndex === -1) return undefined;
-  const ext = path.slice(dotIndex).toLowerCase();
+  const ext = name.slice(dotIndex).toLowerCase();
   return MIME_MAP[ext];
 }
