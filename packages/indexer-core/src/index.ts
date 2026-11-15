@@ -16,6 +16,8 @@ export {
 export {
   createSqlIndexer,
   type SqlBackedDialect,
+  type SqlDocsContext,
+  type SqlDocsModalityProvider,
   type SqlIndexerOptions,
 } from "./create-sql-indexer.js";
 export {
@@ -29,6 +31,15 @@ export { type RankedList, reciprocalRankFusion } from "./rrf.js";
 export { createSerialiser } from "./run-exclusive.js";
 export { legacySanitizePrefix, sanitizePrefix } from "./sanitize-prefix.js";
 export type { SqlDb } from "./sql-db.js";
+export {
+  createSqlKernelIndexer,
+  type SavedIndex,
+  type SqlKernelOptions,
+  type SqlKernelStorage,
+  type SqlKernelSubIndex,
+  type SqlModalityProvider,
+  type SubIndexSpec,
+} from "./sql-kernel.js";
 export {
   buildPathPrefixesSql,
   buildPathPrefixSql,

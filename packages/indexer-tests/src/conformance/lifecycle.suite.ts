@@ -163,6 +163,17 @@ export function runLifecycleConformanceSuite(name: string, options: LifecycleSui
       expect(await vec.get(reopened).getSize()).toBe(0);
     });
 
+    it("concurrent createIndex(overwrite) calls leave one index that works", async () => {
+      await Promise.all([
+        indexer.createIndex({ name: "a", subIndexes: { q: fullTextConfig }, overwrite: true }),
+        indexer.createIndex({ name: "a", subIndexes: { q: fullTextConfig }, overwrite: true }),
+      ]);
+      expect((await indexer.getIndexNames()).map((i) => i.name)).toEqual(["a"]);
+      const idx = defined(await indexer.getIndex("a"));
+      await addText(idx, "/d/1", "hello");
+      expect(await fts.get(idx).getSize()).toBe(1);
+    });
+
     it("a reinit to an unregistered type throws and keeps the saved data", async () => {
       const idx = await indexer.createIndex({ name: "a", subIndexes: { q: fullTextConfig } });
       await addText(idx, "/d/1", "hello");

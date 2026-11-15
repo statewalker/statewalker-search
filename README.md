@@ -12,7 +12,7 @@ Search building blocks published under `@statewalker/*`: a pluggable indexer con
                           indexer-core             (composite index, RRF, indexer builders)
           /            |                 |                |               \
  indexer-mem   indexer-mem-flexsearch  indexer-duckdb  indexer-pglite  indexer-sqlite
- (vectors)     indexer-mem-minisearch  (createSqlIndexer + a dialect)  (own kernel, providers)
+ (vectors)     indexer-mem-minisearch  (SQL kernel: storage + providers, all three)
 
  Side packages: indexer-chunker, content-extractors   (no indexer dependency)
  Private:       indexer-search (SearchPipeline), indexer-tests (conformance suites)
@@ -53,7 +53,7 @@ For one package: `pnpm --filter @statewalker/<name> <script>`.
 - **Sub-indexes are named, not keyed by modality.** One index can hold two full-text sub-indexes (English and French) or two vector sub-indexes (content and summaries). Queries and results are addressed by sub-index name, so the kernel never needs to know modality types; a new modality is a new package.
 - **`Index.search` fuses ranks, not scores (RRF).** BM25 and cosine scores are not comparable, so the top-level `score` is a rank-fusion score: `1 / (60 + rank)` per sub-index, plus a small bonus for an item ranked first (+0.05) or in the top three (+0.02) by any sub-index. No weights or tuning are exposed. The native score of each sub-index stays on `result.subResults[name]`. Weighted blending is a caller-side step (`weightedBlend` in `indexer-search`).
 - **Persistence is per sub-index.** A sub-index that can save itself implements `serialise()` / `loadFrom()`. The in-memory backends save through an `IndexerPersistence` port; the SQL backends store everything in their database.
-- **DuckDB and PGlite share one indexer builder** (`createSqlIndexer` in `indexer-core`) because they share a per-index docs table that maps paths to row ids; the in-memory backends use the provider-based `createPersistenceBackedIndexer`. `indexer-sqlite` has its own kernel with one provider per modality, because its vector and n-gram engines index integer ids from a per-index blocks table and each create their own tables; it reuses the composite index and RRF from `indexer-core`.
+- **One SQL kernel for DuckDB, PGlite and SQLite** (`createSqlKernelIndexer` in `indexer-core`). It owns the manifest, the load actions (adopt, skip, reinit, `onMissingProvider`) and the delete and close rules, so a lifecycle fix lands once for the three databases. What differs is a storage (DuckDB and PGlite: a per-index docs table mapping paths to doc ids, reclaimed after deletes, in `createSqlIndexer`; SQLite: a per-index blocks table of integer ids that its vector and n-gram engines index) and one provider per modality. Any modality written against a storage's context plugs in (`createSqlIndexer({ providers })`). The in-memory backends use the provider-based `createPersistenceBackedIndexer`.
 - **Packages ship `dist/` and `src/`.** `exports` point at `dist/`; the sources are included for reading and debugging.
 
 ## What will surprise you

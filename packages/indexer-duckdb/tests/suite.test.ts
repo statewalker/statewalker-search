@@ -14,11 +14,18 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { newNodeDuckDb } from "@statewalker/db-duckdb-node";
 import type { DocumentPath, Index, IndexerPersistence } from "@statewalker/indexer-api";
-import { createSqlIndexer, legacySqlTableNaming, sqlTableNaming } from "@statewalker/indexer-core";
-import type { FulltextQuery } from "@statewalker/indexer-fulltext";
+import {
+  createSqlFtsRetriever,
+  createSqlIndexer,
+  legacySqlTableNaming,
+  type SqlDocsModalityProvider,
+  sqlTableNaming,
+} from "@statewalker/indexer-core";
+import type { FullTextConfig, FullTextIndex, FulltextQuery } from "@statewalker/indexer-fulltext";
 import { newFullTextAccess } from "@statewalker/indexer-fulltext";
 import {
   collect,
+  defined,
   runFullTextMultiWordSuite,
   runKernelConformanceSuite,
   runLifecycleConformanceSuite,
@@ -29,7 +36,7 @@ import {
 import type { VectorQuery } from "@statewalker/indexer-vector";
 import { newVectorAccess } from "@statewalker/indexer-vector";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { duckdbDialect, wrapDbAsSqlDb } from "../src/dialect.js";
+import { duckdbDialect, duckdbFtsDialect, wrapDbAsSqlDb } from "../src/dialect.js";
 import { createDuckDbIndexer } from "../src/duckdb-indexer.js";
 
 const TEST_DB_DIR = join(fileURLToPath(new URL(".", import.meta.url)), ".testdb");
@@ -194,6 +201,55 @@ describe("DuckDB Indexer — docs-table reclamation", () => {
 
     await idx.deleteDocuments([{ path: "/d/" as DocumentPath }]);
     expect(await countDocsRows("reclaim_fts")).toBe(0);
+  });
+
+  it("a modality added through providers runs over the docs table and counts in the orphan sweep", async () => {
+    // A second full-text modality under its own type, built from the same retriever.
+    const notes: SqlDocsModalityProvider<FullTextConfig> = {
+      type: "notes",
+      docTables: (ctx) => [`idx_${ctx.prefix}_notes`],
+      async open({ db: sqlDb, prefix, docsTable }, config) {
+        const retriever = createSqlFtsRetriever({
+          db: sqlDb,
+          prefix: `${prefix}_notes_x`,
+          docsTable,
+          info: { language: config.language },
+          dialect: duckdbFtsDialect,
+        });
+        await retriever.init();
+        await sqlDb.exec(
+          `CREATE OR REPLACE VIEW idx_${prefix}_notes AS SELECT doc_id FROM idx_${prefix}_notes_x_fts`,
+        );
+        return retriever;
+      },
+      async drop({ db: sqlDb, prefix }) {
+        await sqlDb.exec(`DROP VIEW IF EXISTS idx_${prefix}_notes`);
+        await duckdbFtsDialect.drop?.({ db: sqlDb, tableName: `idx_${prefix}_notes_x_fts` });
+        await sqlDb.exec(`DROP TABLE IF EXISTS idx_${prefix}_notes_x_fts`);
+      },
+    };
+    const custom = await createSqlIndexer({
+      db: wrapDbAsSqlDb(db),
+      dialect: duckdbDialect,
+      providers: [notes],
+    });
+    const idx = await custom.createIndex({
+      name: "custom",
+      subIndexes: { q: ftConfig, n: { type: "notes", language: "en" } },
+    });
+    const n = defined(idx.getBinding("n")).index as FullTextIndex;
+    await n.addDocument([{ path: "/d/1" as DocumentPath, blockId: "a", content: "hello" }]);
+    await newFullTextAccess("q")
+      .get(idx)
+      .addDocument([{ path: "/d/2" as DocumentPath, blockId: "a", content: "world" }]);
+    expect((await collect(n.search({ queries: ["hello"] }))).map((h) => h.path)).toEqual(["/d/1"]);
+
+    // Deleting /d/2 keeps /d/1's docs row, which only the added modality references.
+    await idx.deleteDocuments([{ path: "/d/2" as DocumentPath }]);
+    expect(await countDocsRows("custom")).toBe(1);
+    expect(await collect(n.getDocumentPaths())).toEqual(["/d/1"]);
+    await custom.deleteIndex("custom");
+    expect(await custom.hasIndex("custom")).toBe(false);
   });
 
   it("mixed index: composite deleteDocuments reclaims orphans across FTS + vector", async () => {

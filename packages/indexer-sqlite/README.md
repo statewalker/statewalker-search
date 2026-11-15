@@ -120,6 +120,10 @@ gives a `Db` with the Durable Object's limits.
 
 ## Internals
 
+### The lifecycle is the shared SQL kernel
+
+`createSqliteIndexer` is `createSqlKernelIndexer` from `@statewalker/indexer-core` over a SQLite storage (the manifest table and the per-index blocks table) and your providers. DuckDB and PGlite run the same kernel, so the load actions (adopt, skip, reinit, `onMissingProvider`) and the delete and close rules behave the same on all three. `SqliteModalityProvider` is the kernel's `SqlModalityProvider` over a SQLite context.
+
 ### Tables are prefixed per index and sub-index, and names are case-distinct
 
 ```
