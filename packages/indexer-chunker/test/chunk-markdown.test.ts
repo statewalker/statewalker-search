@@ -311,4 +311,14 @@ describe("chunkMarkdown: surrogate pairs", () => {
       expect(LONE_SURROGATE.test(c.content)).toBe(false);
     }
   });
+
+  it("does not cut inside a fence in CRLF text", () => {
+    const text =
+      "intro\r\n```js\r\nline one of code\r\nline two of code\r\n\r\nline three of code\r\n```\r\nafter text here\r\n";
+    const open = text.indexOf("```");
+    const close = text.lastIndexOf("```");
+    for (const chunk of chunkMarkdown(text, { targetChars: 40, overlap: 0 })) {
+      expect(chunk.endPos <= open || chunk.endPos > close).toBe(true);
+    }
+  });
 });

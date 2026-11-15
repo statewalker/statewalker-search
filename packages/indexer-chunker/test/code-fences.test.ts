@@ -99,4 +99,9 @@ describe("findCodeFences: CommonMark fence rule", () => {
   it("ignores runs shorter than three characters", () => {
     expect(findCodeFences("``\ncode\n~~\n")).toEqual([]);
   });
+
+  it("detects fences in CRLF text", () => {
+    const text = "intro\r\n```js\r\ncode\r\n```\r\nafter\r\n";
+    expect(findCodeFences(text)).toEqual([{ start: 7, end: text.lastIndexOf("```") }]);
+  });
 });

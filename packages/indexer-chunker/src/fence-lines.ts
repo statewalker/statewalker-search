@@ -17,7 +17,7 @@ export interface FenceLine {
 }
 
 const OPENING_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t\r]*$/;
+const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
 export function scanFenceLines(text: string): FenceLine[] {
   const result: FenceLine[] = [];
@@ -25,7 +25,9 @@ export function scanFenceLines(text: string): FenceLine[] {
   let pos = 0;
   let open: { char: string; length: number } | null = null;
 
-  for (const line of lines) {
+  for (const rawLine of lines) {
+    // CRLF text: match on the line without its trailing `\r`.
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
     if (open === null) {
       const match = OPENING_FENCE.exec(line);
       const run = match?.[1];
@@ -44,7 +46,7 @@ export function scanFenceLines(text: string): FenceLine[] {
         result.push({ lineStart: pos, kind: "close" });
       }
     }
-    pos += line.length + 1;
+    pos += rawLine.length + 1;
   }
 
   return result;
