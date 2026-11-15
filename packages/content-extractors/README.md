@@ -23,7 +23,7 @@ pnpm add @statewalker/content-extractors
 - `createDefaultRegistry()` — registry for `*.md`, `*.markdown`, `*.txt`, `*.html`, `*.htm`, `*.pdf`, `*.docx`, `*.docm`, `*.xlsx`.
 - `ExtractorRegistry` — `registerByPattern(pattern, extractor)`, `registerByMime(mime, extractor)`, `getByPath(path)`, `getByMime(mime)`, `get(path, mime?)`.
 - Extractors: `pdfExtractor`, `docxExtractor`, `xlsxExtractor`, `htmlExtractor`, `markdownExtractor`, `textExtractor`.
-- Helpers: `htmlToMarkdown(html)`, `markdownToHtml(markdown)`, `getMimeType(path)`, `collectBytes(chunks)`, `collectText(chunks)`.
+- Helpers: `htmlToMarkdown(html)`, `markdownToHtml(markdown, { html? })`, `getMimeType(path)`, `collectBytes(chunks)`, `collectText(chunks)`.
 
 ## Examples
 
@@ -66,6 +66,7 @@ import { getMimeType, htmlToMarkdown, markdownToHtml } from "@statewalker/conten
 getMimeType("a.PDF"); // "application/pdf"
 htmlToMarkdown("<h1>T</h1>"); // "# T"
 markdownToHtml("**b**"); // "<p><strong>b</strong></p>\n"
+markdownToHtml("<b>x</b>"); // "<p>&lt;b&gt;x&lt;/b&gt;</p>\n": raw HTML is escaped unless { html: true }
 ```
 
 ## Internals
@@ -86,6 +87,7 @@ markdownToHtml("**b**"); // "<p><strong>b</strong></p>\n"
 - **Path matching is by suffix, longest first.** `*.test.html` beats `*.html`. Matching is case-insensitive on the file name, and only the part after the last `/` is used.
 - **XLSX formula and rich-text cells come out as `[object Object]`**, and dates as `Date.toString()` in the local time zone. Plain numbers and strings are fine.
 - **`ContentExtractor` returns `Promise<string | unknown>`.** All built-in extractors return a string; cast or check before use.
+- **`markdownToHtml` escapes raw HTML by default.** Extracted files often come from untrusted uploads, so `<script>` or `<img onerror>` in them is shown as text. `{ html: true }` passes raw HTML through; use it only for trusted input, or sanitise the output before rendering it.
 - **Everything is read into memory.** PDF, DOCX and XLSX parsers need one contiguous buffer, so `collectBytes` joins the chunks first.
 - `ContentNormalizer` is only an interface: a slot for a post-processing step (for example an LLM clean-up) that this package does not implement.
 
