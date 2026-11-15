@@ -36,7 +36,9 @@ export interface RerankCandidate {
 }
 
 /**
- * A reranker's score for one candidate. Echo the candidate's `path`: block ids are unique only
+ * A reranker's score for one candidate, expected in `[0, 1]` (higher is better):
+ * `blendWithReranker` mixes it with a `1 / rank` retrieval score in that range, so a reranker
+ * with unbounded scores (logits) should squash them first, for example with a sigmoid. Echo the candidate's `path`: block ids are unique only
  * within a document, and without it the pipeline matches scores to candidates by `blockId` in
  * candidate order.
  */
