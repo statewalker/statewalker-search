@@ -294,6 +294,36 @@ export function runLifecycleConformanceSuite(name: string, options: LifecycleSui
       }
     });
 
+    it("an unencoded entry name equal to another Index's encoded name is not mistaken for it", async (ctx) => {
+      const createWithPersistence = factory.createWithPersistence;
+      if (!createWithPersistence) return ctx.skip("the backend has no createWithPersistence");
+
+      const persistence = new MemoryPersistence();
+      const first = await createWithPersistence(persistence);
+      const plain = await first.createIndex({ name: "a b", subIndexes: { q: fullTextConfig } });
+      await addText(plain, "/d/1", "one");
+      const literal = await first.createIndex({ name: "a%20b", subIndexes: { q: fullTextConfig } });
+      await addText(literal, "/d/1", "one");
+      await addText(literal, "/d/2", "two");
+      await first.close();
+      if (persistence.listEntryNames().length === 0) {
+        return ctx.skip("the backend does not save through IndexerPersistence");
+      }
+      // An earlier version's layout: "a b/..." and "a%20b/...", the latter equal to the encoded
+      // entry names of "a b".
+      persistence.renameEntries((entry) => entry.split("/").map(decodeURIComponent).join("/"));
+
+      for (let i = 0; i < 2; i++) {
+        const next = await createWithPersistence(persistence);
+        try {
+          expect(await fts.get(defined(await next.getIndex("a b"))).getSize()).toBe(1);
+          expect(await fts.get(defined(await next.getIndex("a%20b"))).getSize()).toBe(2);
+        } finally {
+          await next.close();
+        }
+      }
+    });
+
     it("a vector batch with one wrong-size block writes nothing", async () => {
       const idx = await indexer.createIndex({ name: "a", subIndexes: { v: vectorConfig } });
       await expect(

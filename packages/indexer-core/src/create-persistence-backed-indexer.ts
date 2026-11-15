@@ -73,7 +73,8 @@ function subEntryPrefix(indexName: string, subName: string): string {
  * `enc` is `encodeURIComponent`, so a `/` in a name cannot be mistaken for a separator. It leaves
  * `[A-Za-z0-9-_.!~*'()]` unchanged, so names made of those keep the entry names of earlier
  * versions, which wrote names unencoded. For other names, loading falls back to the unencoded
- * entry names when the encoded ones are missing; the next save writes the encoded ones.
+ * entry names when there is no encoded manifest naming the Index; the next save writes the
+ * encoded ones.
  */
 export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOptions): Indexer {
   const providersByType = new Map<
@@ -158,20 +159,27 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
       return found;
     }
 
+    function readManifest(entryName: string): IndexManifest | undefined {
+      const bytes = entryBytes.get(entryName);
+      return bytes ? (JSON.parse(decoder.decode(bytes)) as IndexManifest) : undefined;
+    }
+
     for (const name of knownNames) {
-      const manifestBytes =
-        entryBytes.get(manifestEntryName(name)) ?? entryBytes.get(`${name}/${MANIFEST_SUFFIX}`);
-      if (!manifestBytes) continue;
-      const manifest = JSON.parse(decoder.decode(manifestBytes)) as IndexManifest;
+      // The encoded entry is this Index's only if its manifest names it: in a store written
+      // by an earlier version, `a%20b/__manifest__` is the unencoded entry of an Index named
+      // "a%20b", not the encoded one of "a b".
+      const encoded = readManifest(manifestEntryName(name));
+      const useEncoded = encoded !== undefined && encoded.name === name;
+      const manifest = useEncoded ? encoded : readManifest(`${name}/${MANIFEST_SUFFIX}`);
+      if (!manifest) continue;
       savedManifests.set(name, manifest);
 
       const perIndex = new Map<string, Map<string, Uint8Array>>();
       for (const subName of Object.keys(manifest.subIndexes)) {
-        const prefix = subEntryPrefix(name, subName);
-        let entries = byPrefix.get(prefix);
-        const legacyPrefix = `${name}/${subName}/`;
-        if (!entries && legacyPrefix !== prefix) {
-          const legacy = legacySubEntries(legacyPrefix);
+        let entries: Map<string, Uint8Array> | undefined;
+        if (useEncoded) entries = byPrefix.get(subEntryPrefix(name, subName));
+        else {
+          const legacy = legacySubEntries(`${name}/${subName}/`);
           if (legacy.size > 0) entries = legacy;
         }
         if (entries) perIndex.set(subName, entries);
