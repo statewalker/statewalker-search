@@ -2,6 +2,7 @@ import { newFullTextAccess } from "@statewalker/indexer-fulltext";
 import {
   collect,
   runKernelConformanceSuite,
+  runLifecycleConformanceSuite,
   runMultiInstanceConformanceSuite,
   runVectorConformanceSuite,
 } from "@statewalker/indexer-tests";
@@ -34,6 +35,12 @@ for (const flavour of flavours) {
     factory,
     primaryConfig: { type: "fulltext", language: "en" },
     secondaryConfig: { type: "vector", dimensionality: 3, model: "test" },
+  });
+
+  runLifecycleConformanceSuite(label, {
+    factory,
+    fullTextConfig: { type: "fulltext", language: "en" },
+    vectorConfig: { type: "vector", dimensionality: 3, model: "test" },
   });
 
   runMultiInstanceConformanceSuite(label, {

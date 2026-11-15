@@ -12,6 +12,7 @@ import {
   runFullTextConformanceSuite,
   runFullTextMultiWordSuite,
   runKernelConformanceSuite,
+  runLifecycleConformanceSuite,
   runMultiInstanceConformanceSuite,
   runRrfBlendingSuite,
   runVectorConformanceSuite,
@@ -39,6 +40,12 @@ runKernelConformanceSuite("MiniSearch + MemVector", {
   factory,
   primaryConfig: ftConfig,
   secondaryConfig: vecConfig,
+});
+
+runLifecycleConformanceSuite("MiniSearch + MemVector", {
+  factory: factory,
+  fullTextConfig: ftConfig,
+  vectorConfig: vecConfig,
 });
 
 runFullTextConformanceSuite("MiniSearch FTS", miniSearchFullTextProvider, {

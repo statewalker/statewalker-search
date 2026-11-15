@@ -21,6 +21,7 @@ import {
   collect,
   runFullTextMultiWordSuite,
   runKernelConformanceSuite,
+  runLifecycleConformanceSuite,
   runMultiInstanceConformanceSuite,
   runRrfBlendingSuite,
 } from "@statewalker/indexer-tests";
@@ -45,6 +46,12 @@ runKernelConformanceSuite("DuckDB Indexer - in memory", {
   factory: inMemFactory,
   primaryConfig: ftConfig,
   secondaryConfig: vecConfig,
+});
+
+runLifecycleConformanceSuite("DuckDB Indexer - in memory", {
+  factory: inMemFactory,
+  fullTextConfig: ftConfig,
+  vectorConfig: vecConfig,
 });
 
 const ftAccess = newFullTextAccess("q");

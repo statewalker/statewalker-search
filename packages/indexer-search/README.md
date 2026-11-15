@@ -48,7 +48,7 @@ const pipeline = new SearchPipeline({
     { type: "vec", query: prompt },
   ],
   reranker: async (query, candidates) =>
-    candidates.map((c, i) => ({ blockId: c.blockId, score: 1 / (i + 1) })),
+    candidates.map((c, i) => ({ blockId: c.blockId, path: c.path, score: 1 / (i + 1) })),
   onError: (stage, error) => console.warn(stage, error),
 });
 
@@ -84,11 +84,11 @@ parseStructuredQuery("plain question"); // null: no typed lines, use the text as
 
 ## Internals
 
-- **Stage failures degrade, they do not throw.** If the expander throws, the prompt is used as a lexical query (and as a semantic one when `embedFn` is set). If the reranker or citation builder throws, retrieval order or entries without citations are returned. `onError(stage, error)` is called first; without it the error is swallowed silently.
-- **Errors that do throw:** `No queries, embeddings, or prompt provided to SearchPipeline`, and `Semantic queries provided but no embedFn in pipeline config`.
+- **Stage failures degrade, they do not throw.** If the expander throws, the prompt is used as a lexical query (and as a semantic one when `embedFn` is set). Semantic queries the expander returns are dropped when there is no `embedFn` (reported as an `expansion` error). If the reranker, the citation builder or the `getContent` lookup they use throws, retrieval order or entries without citations are returned. `onError(stage, error)` is called first; without it the error is swallowed silently.
+- **Errors that do throw:** `No queries, embeddings, or prompt provided to SearchPipeline`, and `Semantic queries provided but no embedFn in pipeline config` (for queries set with `setSemanticQueries`).
 - **Rerank and cite need `getContent`.** Without it those stages are skipped without notice.
 - **Reranker blending is position-aware.** `blendWithReranker` mixes `1 / rank` with the reranker score; the retrieval weight is 0.75 for ranks 1-3, 0.60 for 4-10 and 0.40 below (`DEFAULT_BLEND_TIERS`), so a reranker cannot easily push out the top retrieval hits.
-- **Rerank keys entries by `blockId` only.** If two documents use the same block id, their rerank scores and paths can be mixed up. Use block ids that are unique across the index when reranking.
+- **Rerank scores and citations are matched by path and block id.** Block ids are unique only within a document, so candidates and the entries given to the citation builder carry `path`, and `getContent` receives it. A reranker score or citation that echoes `path` goes to exactly that entry; one without `path` goes to the first entry with its block id that no earlier item took.
 - `weightedBlend` min-max normalises each sub-index's native score over the result set; a name whose scores are all equal falls back to `1 / position`.
 - `parseStructuredQuery` throws on an empty typed line (`Empty query after "lex:" prefix on line 2`), on mixing `expand:` with typed lines, and on mixing plain and typed lines.
 - Query parser, intent extraction and reranker blending are adapted from [QMD](https://github.com/tobi/qmd) by Tobi Lutke (MIT).

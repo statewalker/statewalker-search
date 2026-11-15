@@ -81,4 +81,16 @@ describe("markdownToHtml", () => {
     expect(html).toContain("<strong>bold</strong>");
     expect(html).toContain("<ul>");
   });
+
+  it("escapes raw HTML by default", () => {
+    const html = markdownToHtml("<img src=x onerror=alert(1)>\n\ntext <script>alert(1)</script>");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<script");
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+  });
+
+  it("passes raw HTML through only when asked to", () => {
+    const html = markdownToHtml("<b>bold</b>", { html: true });
+    expect(html).toContain("<b>bold</b>");
+  });
 });
