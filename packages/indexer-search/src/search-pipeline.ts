@@ -165,12 +165,28 @@ export class SearchPipeline {
       if (expander) {
         try {
           expandedQueries = await expander(this._prompt);
+          const dropped: string[] = [];
           for (const eq of expandedQueries) {
             if (eq.type === "lex") {
               lexQueries.push(eq.query);
-            } else {
+            } else if (embedFn) {
               vecQueries.push(eq.query);
+            } else {
+              dropped.push(eq.query);
             }
+          }
+          if (dropped.length > 0) {
+            // Without an embedder, semantic expansions cannot be searched: drop them and report,
+            // like the fallback path below, rather than fail the whole search.
+            onError?.(
+              "expansion",
+              new Error(
+                `Dropped ${dropped.length} semantic expanded queries: no embedFn in pipeline config`,
+              ),
+            );
+          }
+          if (lexQueries.length === 0 && vecQueries.length === 0) {
+            lexQueries.push(this._prompt);
           }
         } catch (err) {
           onError?.("expansion", err);
@@ -235,22 +251,34 @@ export class SearchPipeline {
     // 4. RERANK — optional; needs `getContent` to fetch block text.
     if (reranker && entries.length > 0 && getContent) {
       const queryForRerank = this._prompt ?? lexQueries[0] ?? vecQueries[0] ?? "";
-      const entryByBlockId = new Map(entries.map((e) => [e.blockId, e]));
-      const texts = await Promise.all(
-        entries.map(async (e) => (await getContent(e.blockId, e.path)) ?? ""),
-      );
-      const candidates = entries.map((e, i) => ({ blockId: e.blockId, text: texts[i] ?? "" }));
       try {
+        const texts = await Promise.all(
+          entries.map(async (e) => (await getContent(e.blockId, e.path)) ?? ""),
+        );
+        const candidates = entries.map((e, i) => ({
+          blockId: e.blockId,
+          path: e.path,
+          text: texts[i] ?? "",
+        }));
         const rerankResults = await reranker(queryForRerank, candidates);
-        const rerankScores = new Map(rerankResults.map((r) => [r.blockId, r.score]));
-        const blended = blendWithReranker(entries, rerankScores, blendTiers);
+        // Block ids are unique only within a document: match each score to its entry by
+        // path + blockId, and blend on positional keys so equal block ids never collide.
+        const matched = matchToEntries(entries, rerankResults);
+        const rerankScores = new Map<string, number>();
+        for (const [i, r] of matched) rerankScores.set(String(i), r.score);
+        const blended = blendWithReranker(
+          entries.map((e, i) => ({ blockId: String(i), score: e.score })),
+          rerankScores,
+          blendTiers,
+        );
+        const current = entries;
         entries = blended.map((r) => {
-          const existing = entryByBlockId.get(r.blockId);
+          const existing = current[Number(r.blockId)] as PipelineEntry;
           return {
-            blockId: r.blockId,
-            path: existing?.path ?? ("/" as DocumentPath),
+            blockId: existing.blockId,
+            path: existing.path,
             score: r.score,
-            ...(this._explain && existing?.explain
+            ...(this._explain && existing.explain
               ? {
                   explain: {
                     ...existing.explain,
@@ -271,17 +299,15 @@ export class SearchPipeline {
     if (citationBuilder && entries.length > 0 && getContent) {
       const queryForCite = this._prompt ?? lexQueries[0] ?? vecQueries[0] ?? "";
       try {
-        const citations = await citationBuilder(queryForCite, entries, async (blockId) => {
-          const entry = entries.find((e) => e.blockId === blockId);
+        const citations = await citationBuilder(queryForCite, entries, async (blockId, path) => {
+          const entry = path
+            ? entries.find((e) => e.blockId === blockId && e.path === path)
+            : entries.find((e) => e.blockId === blockId);
           if (!entry) return "";
           return (await getContent(blockId, entry.path)) ?? "";
         });
-        const citationMap = new Map(citations.map((c) => [c.blockId, c]));
-        for (const entry of entries) {
-          const cit = citationMap.get(entry.blockId);
-          if (cit) {
-            entry.citation = cit;
-          }
+        for (const [i, cit] of matchToEntries(entries, citations)) {
+          (entries[i] as PipelineEntry).citation = cit;
         }
       } catch (err) {
         onError?.("citations", err);
@@ -291,4 +317,27 @@ export class SearchPipeline {
 
     return entries.slice(0, this._topK);
   }
+}
+
+/**
+ * Pairs items returned by a stage (rerank scores, citations) with the entries they belong to.
+ * An item with a `path` matches the entry with the same path and blockId; an item without one
+ * matches the first entry with its blockId that no earlier item took, so two documents that
+ * share a block id each keep one item. Items that match no entry are dropped.
+ */
+function matchToEntries<T extends { blockId: BlockId; path?: DocumentPath }>(
+  entries: PipelineEntry[],
+  items: T[],
+): Map<number, T> {
+  const matched = new Map<number, T>();
+  for (const item of items) {
+    const i = entries.findIndex(
+      (e, j) =>
+        !matched.has(j) &&
+        e.blockId === item.blockId &&
+        (item.path === undefined || e.path === item.path),
+    );
+    if (i >= 0) matched.set(i, item);
+  }
+  return matched;
 }
