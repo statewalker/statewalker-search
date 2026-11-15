@@ -96,10 +96,41 @@ describe("scanBreakPoints", () => {
     expect(scores.has(5)).toBe(true); // list item
   });
 
-  it("detects code block boundaries with score 80", () => {
+  it("scores the position right after a closing code fence with 80", () => {
     const text = "Hello\n```js\ncode\n```\nWorld";
     const points = scanBreakPoints(text);
     const codeBlocks = points.filter((p) => p.score === 80);
-    expect(codeBlocks.length).toBe(2);
+    expect(codeBlocks).toEqual([{ position: text.indexOf("World"), score: 80 }]);
+  });
+
+  it("scores the position after a closing tilde fence with 80", () => {
+    const text = "Hello\n~~~\ncode\n~~~\nWorld";
+    const points = scanBreakPoints(text);
+    expect(points.filter((p) => p.score === 80)).toEqual([
+      { position: text.indexOf("World"), score: 80 },
+    ]);
+  });
+
+  it("keeps the higher score when a heading follows a closing fence", () => {
+    const text = "```\ncode\n```\n# Title";
+    const points = scanBreakPoints(text);
+    expect(points.filter((p) => p.position === text.indexOf("# Title"))).toEqual([
+      { position: text.indexOf("# Title"), score: 100 },
+    ]);
+  });
+
+  it("agrees with findCodeFences on which lines are fences", () => {
+    // The ``` line inside a ~~~ block is code, not a fence; the 80 goes after
+    // the closing ~~~ only.
+    const text = "~~~\n```\ncode\n~~~\nafter";
+    const points = scanBreakPoints(text);
+    expect(points.filter((p) => p.score === 80)).toEqual([
+      { position: text.indexOf("after"), score: 80 },
+    ]);
+  });
+
+  it("adds no fence break point when the closing fence ends the text", () => {
+    const points = scanBreakPoints("Hello\n```\ncode\n```");
+    expect(points.filter((p) => p.score === 80)).toEqual([]);
   });
 });
