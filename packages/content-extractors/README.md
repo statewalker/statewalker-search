@@ -20,10 +20,12 @@ pnpm add @statewalker/content-extractors
 | `@statewalker/content-extractors/extractors` | The extractors and `createDefaultRegistry` only. |
 | `@statewalker/content-extractors/types` | `ContentExtractor`, `ContentNormalizer` (types only). |
 
-- `createDefaultRegistry()` — registry for `*.md`, `*.markdown`, `*.txt`, `*.html`, `*.htm`, `*.pdf`, `*.docx`, `*.docm`, `*.xlsx`.
+- `createDefaultRegistry(limits?)` — registry for `*.md`, `*.markdown`, `*.txt`, `*.html`, `*.htm`, `*.pdf`, `*.docx`, `*.docm`, `*.xlsx`; `limits` (`{ maxBytes?, maxUncompressedBytes? }`) applies to every extractor in it.
 - `ExtractorRegistry` — `registerByPattern(pattern, extractor)`, `registerByMime(mime, extractor)`, `getByPath(path)`, `getByMime(mime)`, `get(path, mime?)`.
-- Extractors: `pdfExtractor`, `docxExtractor`, `xlsxExtractor`, `htmlExtractor`, `markdownExtractor`, `textExtractor`.
-- Helpers: `htmlToMarkdown(html)`, `markdownToHtml(markdown, { html? })`, `getMimeType(path)`, `collectBytes(chunks)`, `collectText(chunks)`.
+- Extractors with the default limits: `pdfExtractor`, `docxExtractor`, `xlsxExtractor`, `htmlExtractor`, `markdownExtractor`, `textExtractor`.
+- Extractor factories with your own limits: `createPdfExtractor({ maxBytes? })`, `createDocxExtractor({ maxBytes?, maxUncompressedBytes? })`, `createXlsxExtractor({ maxBytes?, maxUncompressedBytes? })`, `createHtmlExtractor({ maxBytes? })`, `createMarkdownExtractor({ maxBytes? })`, `createTextExtractor({ maxBytes? })`.
+- Limits: `DEFAULT_MAX_BYTES` (100 MiB), `DEFAULT_MAX_UNCOMPRESSED_BYTES` (500 MiB), types `ExtractorLimits`, `ZipExtractorLimits`.
+- Helpers: `htmlToMarkdown(html)`, `markdownToHtml(markdown, { html? })`, `getMimeType(path)`, `collectBytes(chunks, { maxBytes? })`, `collectText(chunks, { maxBytes? })`, `zipUncompressedSize(bytes)`, `assertZipUncompressedSize(bytes, maxBytes)`.
 
 ## Examples
 
@@ -58,6 +60,15 @@ registry.registerByMime("text/html", htmlExtractor);
 registry.get("upload-1234", "application/pdf"); // pdfExtractor
 ```
 
+Change the size limits (see [Input size limits](#input-size-limits)):
+
+```ts
+import { createDefaultRegistry, createXlsxExtractor } from "@statewalker/content-extractors";
+
+const registry = createDefaultRegistry({ maxBytes: 20 * 1024 * 1024 }); // 20 MiB per file
+registry.registerByPattern("*.xlsx", createXlsxExtractor({ maxUncompressedBytes: 2 * 1024 ** 3 }));
+```
+
 Helpers:
 
 ```ts
@@ -65,6 +76,7 @@ import { getMimeType, htmlToMarkdown, markdownToHtml } from "@statewalker/conten
 
 getMimeType("a.PDF"); // "application/pdf"
 htmlToMarkdown("<h1>T</h1>"); // "# T"
+htmlToMarkdown("<p>hi</p><script>alert(1)</script>"); // "hi": script, style, noscript, template are dropped
 markdownToHtml("**b**"); // "<p><strong>b</strong></p>\n"
 markdownToHtml("<b>x</b>"); // "<p>&lt;b&gt;x&lt;/b&gt;</p>\n": raw HTML is escaped unless { html: true }
 ```
@@ -77,18 +89,27 @@ markdownToHtml("<b>x</b>"); // "<p>&lt;b&gt;x&lt;/b&gt;</p>\n": raw HTML is esca
 | --- | --- | --- |
 | PDF | `unpdf` | `## Page N` section per non-empty page |
 | DOCX, DOCM | `mammoth` to HTML, then `htmlToMarkdown` | Markdown with headings, lists, tables |
-| XLSX | `exceljs` | `## <sheet name>` and a Markdown table per sheet; first row is the header |
-| HTML | `turndown` + GFM plugin | ATX headings, fenced code, GFM tables |
+| XLSX | `exceljs` | `## <sheet name>` and a Markdown table per sheet; first row is the header; pipes in cells escaped, line breaks as spaces |
+| HTML | `turndown` + GFM plugin | ATX headings, fenced code, GFM tables; `<script>`, `<style>`, `<noscript>`, `<template>` dropped |
 | Markdown, text | none | UTF-8 decoded text as-is |
+
+### Input size limits
+
+Every built-in extractor reads at most `maxBytes` of input (default `DEFAULT_MAX_BYTES`, 100 MiB) and throws `Input exceeds the limit of N bytes` beyond it; reading stops as soon as the limit is passed, so an endless stream is not buffered. The DOCX, DOCM and XLSX extractors also read the ZIP central directory before handing the archive to mammoth or exceljs, add up the declared uncompressed sizes, and throw `Archive uncompressed size … exceeds the limit …` when the sum is over `maxUncompressedBytes` (default `DEFAULT_MAX_UNCOMPRESSED_BYTES`, 500 MiB). This refuses a small "zip bomb" before it is inflated. Bytes that are not a readable ZIP throw `Invalid ZIP archive: …`.
+
+Pass limits to `createDefaultRegistry(limits)` or to a `create*Extractor(limits)` factory; `Infinity` turns a limit off. `collectBytes` and `collectText` have no limit unless `maxBytes` is given.
+
+The uncompressed check trusts the sizes the archive declares. An archive that lies about them is still caught by JSZip (inside mammoth and exceljs), which compares the inflated size with the declared one, but only after inflating that entry.
 
 ### Things that surprise
 
 - **The default registry has no MIME routes.** `createDefaultRegistry().get("upload-1234", "application/pdf")` returns `undefined`; register MIME types yourself as shown above.
-- **Path matching is by suffix, longest first.** `*.test.html` beats `*.html`. Matching is case-insensitive on the file name, and only the part after the last `/` is used.
+- **Path matching is by suffix, longest first.** `*.test.html` beats `*.html`. Matching is case-insensitive on both the file name and the pattern (`*.PDF` matches `report.pdf`), and only the part after the last `/` is used. `getMimeType` also looks only after the last `/`: `notes.md/LICENSE` has no extension.
+- **XLSX cells are flattened to one line.** A `|` becomes `\|` and each line break (CR, LF, CRLF) becomes one space, so a cell never adds a column or splits a row.
 - **XLSX formula and rich-text cells come out as `[object Object]`**, and dates as `Date.toString()` in the local time zone. Plain numbers and strings are fine.
 - **`ContentExtractor` returns `Promise<string | unknown>`.** All built-in extractors return a string; cast or check before use.
 - **`markdownToHtml` escapes raw HTML by default.** Extracted files often come from untrusted uploads, so `<script>` or `<img onerror>` in them is shown as text. `{ html: true }` passes raw HTML through; use it only for trusted input, or sanitise the output before rendering it.
-- **Everything is read into memory.** PDF, DOCX and XLSX parsers need one contiguous buffer, so `collectBytes` joins the chunks first.
+- **Everything is read into memory.** PDF, DOCX and XLSX parsers need one contiguous buffer, so `collectBytes` joins the chunks first, up to the `maxBytes` limit.
 - `ContentNormalizer` is only an interface: a slot for a post-processing step (for example an LLM clean-up) that this package does not implement.
 
 ### Dependencies
