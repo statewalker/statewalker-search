@@ -3,7 +3,9 @@ export type {
   CitationBuilderFn,
   ExpandedQuery,
   QueryExpanderFn,
+  RerankCandidate,
   RerankerFn,
+  RerankScore,
 } from "./fn-types.js";
 export {
   createMockCitationBuilder,
