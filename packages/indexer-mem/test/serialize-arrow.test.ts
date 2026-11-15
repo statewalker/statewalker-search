@@ -1,8 +1,9 @@
-import type { DocumentPath, EmbeddingIndexInfo } from "@statewalker/indexer-api";
+import type { DocumentPath } from "@statewalker/indexer-api";
+import type { VectorIndexInfo } from "@statewalker/indexer-vector";
 import { describe, expect, it } from "vitest";
 import { MemVectorIndex } from "../src/mem-vector-index.js";
 
-const info: EmbeddingIndexInfo = { dimensionality: 3, model: "test" };
+const info: VectorIndexInfo = { dimensionality: 3, model: "test" };
 
 describe("MemVectorIndex Arrow serialize/deserialize", () => {
   it("preserves metadata across the roundtrip", async () => {
