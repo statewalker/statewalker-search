@@ -112,5 +112,22 @@ export function runRrfBlendingSuite(name: string, options: RrfSuiteOptions): voi
       const results = await collect(index.search(request));
       expect(results.length).toBeLessThanOrEqual(1);
     });
+
+    it("top-level paths scope a sub-query that sets no paths of its own", async () => {
+      const request: SearchRequest = {
+        topK: 10,
+        paths: ["/d/a"],
+        subQueries: { q: buildQuery({}) },
+      };
+      const results = await collect(index.search(request));
+      expect(results.map((r) => r.path)).toEqual(["/d/a"]);
+    });
+
+    it("a sub-query's own paths override the top-level paths", async () => {
+      const sub = { ...(buildQuery({}) as Record<string, unknown>), paths: ["/d/b"] };
+      const request: SearchRequest = { topK: 10, paths: ["/d/a"], subQueries: { q: sub } };
+      const results = await collect(index.search(request));
+      expect(results.map((r) => r.path)).toEqual(["/d/b"]);
+    });
   });
 }

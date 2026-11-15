@@ -74,7 +74,7 @@ score(item) = sum over lists of  weight / (k + rank)      k = 60, rank is 1-base
             + 0.02 if its best rank is 2 or 3
 ```
 
-The top-rank bonus keeps an item that one sub-index ranks first from being pushed down by items that appear lower in several lists. `createCompositeIndex` keys items by `compositeKey(path, blockId)` (length-prefixed, so no character in a path or block id can collide with the separator), runs only bindings whose name is in `request.subQueries`, and passes each sub-index only its sub-query. Top-level `request.paths` is not forwarded; top-level `topK` only cuts the fused list.
+The top-rank bonus keeps an item that one sub-index ranks first from being pushed down by items that appear lower in several lists. `createCompositeIndex` keys items by `compositeKey(path, blockId)` (length-prefixed, so no character in a path or block id can collide with the separator), runs only bindings whose name is in `request.subQueries`, and passes each sub-index only its sub-query. Top-level `request.paths` is copied into each sub-query object that sets no `paths` of its own; top-level `topK` only cuts the fused list.
 
 ### Persistence-backed indexer: wire format
 

@@ -58,7 +58,6 @@ For one package: `pnpm --filter @statewalker/<name> <script>`.
 
 ## What will surprise you
 
-- **`SearchRequest.paths` does not filter.** The composite passes only each sub-query to its sub-index; the top-level `paths` is not forwarded. Put `paths` on each sub-query (`{ queries, paths }` / `{ embeddings, paths }` / `{ pattern, paths }`), or you get hits from the whole index.
 - **Top-level `topK` only truncates the fused list.** Each sub-index retrieves `sub-query.topK` hits (default 100 in all current backends), then RRF fuses them.
 - **DuckDB downloads extensions.** `createDuckDbIndexer` runs `INSTALL fts; INSTALL vss;`. Offline or sandboxed hosts fail at init with DuckDB's extension download error.
 - **Several full-text `queries` combine differently per backend.** SQLite, FlexSearch and MiniSearch add up the per-query scores; DuckDB and PGlite keep each block's best one. The same request can rank blocks differently on different backends.
@@ -90,7 +89,6 @@ Packages are published to npm from CI with changesets. After CI passes on `main`
 | `packages/*` | Workspace packages |
 | `pnpm-workspace.yaml` | Workspace globs and the dependency catalog |
 | `biome.json` | Lint and format rules |
-| `turbo.json` | Task graph |
 
 ## License
 
