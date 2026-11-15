@@ -227,6 +227,129 @@ export function runLifecycleConformanceSuite(name: string, options: LifecycleSui
       }
     });
 
+    it("index and sub-index names with a slash keep their data across close and reopen", async () => {
+      const idx = await indexer.createIndex({
+        name: "proj/a",
+        subIndexes: { "en/body": fullTextConfig, q: fullTextConfig },
+      });
+      const body = newFullTextAccess("en/body");
+      await body
+        .get(idx)
+        .addDocument([{ path: "/d/1" as DocumentPath, blockId: "0", content: "x" }]);
+      await addText(idx, "/d/2", "hello");
+      await idx.close();
+
+      const reopened = defined(await indexer.getIndex("proj/a"));
+      expect(await body.get(reopened).getSize()).toBe(1);
+      expect(await fts.get(reopened).getSize()).toBe(1);
+    });
+
+    it("index and sub-index names with a slash keep their data across a save and reload", async (ctx) => {
+      const createWithPersistence = factory.createWithPersistence;
+      if (!createWithPersistence) return ctx.skip("the backend has no createWithPersistence");
+
+      const body = newFullTextAccess("en/body");
+      const persistence = new MemoryPersistence();
+      const first = await createWithPersistence(persistence);
+      const idx = await first.createIndex({
+        name: "proj/a",
+        subIndexes: { "en/body": fullTextConfig, q: fullTextConfig },
+      });
+      await body
+        .get(idx)
+        .addDocument([{ path: "/d/1" as DocumentPath, blockId: "0", content: "x" }]);
+      await fts
+        .get(idx)
+        .addDocument([{ path: "/d/1" as DocumentPath, blockId: "0", content: "y" }]);
+      await fts
+        .get(idx)
+        .addDocument([{ path: "/d/2" as DocumentPath, blockId: "0", content: "z" }]);
+      await first.createIndex({ name: "proj", subIndexes: { q: fullTextConfig } });
+      await first.close();
+
+      // Two reloads: the first one's save must not overwrite the data with an empty sub-index.
+      for (let i = 0; i < 2; i++) {
+        const next = await createWithPersistence(persistence);
+        try {
+          const reloaded = defined(await next.getIndex("proj/a"));
+          expect(await body.get(reloaded).getSize()).toBe(1);
+          expect(await fts.get(reloaded).getSize()).toBe(2);
+          expect(await fts.get(defined(await next.getIndex("proj"))).getSize()).toBe(0);
+        } finally {
+          await next.close();
+        }
+      }
+    });
+
+    it("data saved under the unencoded entry names of earlier versions still loads", async (ctx) => {
+      const createWithPersistence = factory.createWithPersistence;
+      if (!createWithPersistence) return ctx.skip("the backend has no createWithPersistence");
+
+      const body = newFullTextAccess("en body");
+      const persistence = new MemoryPersistence();
+      const first = await createWithPersistence(persistence);
+      for (const indexName of ["my notes", "proj/a"]) {
+        const idx = await first.createIndex({
+          name: indexName,
+          subIndexes: { "en body": fullTextConfig, q: fullTextConfig },
+        });
+        await body
+          .get(idx)
+          .addDocument([{ path: "/d/1" as DocumentPath, blockId: "0", content: "x" }]);
+        await addText(idx, "/d/2", "hello");
+      }
+      await first.close();
+      if (persistence.listEntryNames().length === 0) {
+        return ctx.skip("the backend does not save through IndexerPersistence");
+      }
+      // Earlier versions wrote the names unencoded: `${indexName}/${subIndexName}/${suffix}`.
+      persistence.renameEntries((entry) => entry.split("/").map(decodeURIComponent).join("/"));
+      expect(persistence.listEntryNames()).toContain("my notes/__manifest__");
+
+      for (let i = 0; i < 2; i++) {
+        const next = await createWithPersistence(persistence);
+        try {
+          for (const indexName of ["my notes", "proj/a"]) {
+            const reloaded = defined(await next.getIndex(indexName));
+            expect(await body.get(reloaded).getSize()).toBe(1);
+            expect(await fts.get(reloaded).getSize()).toBe(1);
+          }
+        } finally {
+          await next.close();
+        }
+      }
+    });
+
+    it("an unencoded entry name equal to another Index's encoded name is not mistaken for it", async (ctx) => {
+      const createWithPersistence = factory.createWithPersistence;
+      if (!createWithPersistence) return ctx.skip("the backend has no createWithPersistence");
+
+      const persistence = new MemoryPersistence();
+      const first = await createWithPersistence(persistence);
+      const plain = await first.createIndex({ name: "a b", subIndexes: { q: fullTextConfig } });
+      await addText(plain, "/d/1", "one");
+      const literal = await first.createIndex({ name: "a%20b", subIndexes: { q: fullTextConfig } });
+      await addText(literal, "/d/1", "one");
+      await addText(literal, "/d/2", "two");
+      await first.close();
+      if (persistence.listEntryNames().length === 0) {
+        return ctx.skip("the backend does not save through IndexerPersistence");
+      }
+      // An earlier version's layout: "a b/..." and "a%20b/...", the latter equal to the encoded
+      // entry names of "a b".
+      persistence.renameEntries((entry) => entry.split("/").map(decodeURIComponent).join("/"));
+
+      for (let i = 0; i < 2; i++) {
+        const next = await createWithPersistence(persistence);
+        try {
+          expect(await fts.get(defined(await next.getIndex("a b"))).getSize()).toBe(1);
+          expect(await fts.get(defined(await next.getIndex("a%20b"))).getSize()).toBe(2);
+        } finally {
+          await next.close();
+        }
+      }
+    });
+
     it("a vector batch with one wrong-size block writes nothing", async () => {
       const idx = await indexer.createIndex({ name: "a", subIndexes: { v: vectorConfig } });
       await expect(

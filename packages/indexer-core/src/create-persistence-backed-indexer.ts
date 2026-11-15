@@ -41,6 +41,22 @@ interface IndexManifest {
 }
 
 const TOP_MANIFEST = "__manifest__";
+const MANIFEST_SUFFIX = "__manifest__";
+
+/** One name segment of an entry name: URI-encoded, so it never contains a `/`. */
+function seg(name: string): string {
+  return encodeURIComponent(name);
+}
+
+/** Entry name of an Index's manifest. */
+function manifestEntryName(indexName: string): string {
+  return `${seg(indexName)}/${MANIFEST_SUFFIX}`;
+}
+
+/** Entry-name prefix of a sub-index's entries (`<prefix><suffix>`). */
+function subEntryPrefix(indexName: string, subName: string): string {
+  return `${seg(indexName)}/${seg(subName)}/`;
+}
 
 /**
  * Generic persistence-backed `Indexer` factory. Modality-agnostic: takes a list
@@ -50,9 +66,15 @@ const TOP_MANIFEST = "__manifest__";
  *
  * Wire format under one `IndexerPersistence` store:
  * - `__manifest__` — JSON array of all known index names
- * - `${indexName}/__manifest__` — JSON `IndexManifest` (mirrors `CreateIndexParams.subIndexes`)
- * - `${indexName}/${subIndexName}/<entry>` — each persistable sub-index's `serialise()` output,
- *   prefixed to keep entries namespaced across sub-indexes and Indexes
+ * - `${enc(indexName)}/__manifest__` — JSON `IndexManifest` (mirrors `CreateIndexParams.subIndexes`)
+ * - `${enc(indexName)}/${enc(subIndexName)}/<entry>` — each persistable sub-index's `serialise()`
+ *   output, prefixed to keep entries namespaced across sub-indexes and Indexes
+ *
+ * `enc` is `encodeURIComponent`, so a `/` in a name cannot be mistaken for a separator. It leaves
+ * `[A-Za-z0-9-_.!~*'()]` unchanged, so names made of those keep the entry names of earlier
+ * versions, which wrote names unencoded. For other names, loading falls back to the unencoded
+ * entry names when there is no encoded manifest naming the Index; the next save writes the
+ * encoded ones.
  */
 export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOptions): Indexer {
   const providersByType = new Map<
@@ -98,53 +120,71 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
 
   async function loadFromPersistence(): Promise<void> {
     if (!persistence || initialized) return;
-    const textEntries = new Map<string, string>();
-    const subEntryBytes = new Map<string, Uint8Array>();
-
+    const entryBytes = new Map<string, Uint8Array>();
     for await (const entry of persistence.load()) {
-      const bytes = await readEntryBytes(entry);
-      // Heuristic: text manifests are JSON-decodable; per-sub entries are kept as bytes.
-      if (entry.name === TOP_MANIFEST || entry.name.endsWith("/__manifest__")) {
-        textEntries.set(entry.name, new TextDecoder().decode(bytes));
-      } else {
-        subEntryBytes.set(entry.name, bytes);
-      }
+      entryBytes.set(entry.name, await readEntryBytes(entry));
     }
+    const decoder = new TextDecoder();
 
-    const topJson = textEntries.get(TOP_MANIFEST);
-    if (topJson) {
-      const names = JSON.parse(topJson) as string[];
+    const topBytes = entryBytes.get(TOP_MANIFEST);
+    if (topBytes) {
+      const names = JSON.parse(decoder.decode(topBytes)) as string[];
       for (const name of names) knownNames.add(name);
     }
 
-    for (const name of knownNames) {
-      const manifestJson = textEntries.get(`${name}/__manifest__`);
-      if (manifestJson) {
-        savedManifests.set(name, JSON.parse(manifestJson) as IndexManifest);
-      }
-    }
-
-    // Group sub-index entries by (indexName, subIndexName).
-    for (const [entryName, bytes] of subEntryBytes) {
-      // entryName = "<indexName>/<subIndexName>/<suffix>" — at least 2 slashes.
+    // Sub-index entries by their `<index>/<sub>/` prefix. Encoded segments hold no `/`, so the
+    // prefix ends at the second `/`.
+    const byPrefix = new Map<string, Map<string, Uint8Array>>();
+    for (const [entryName, bytes] of entryBytes) {
       const firstSlash = entryName.indexOf("/");
       if (firstSlash < 0) continue;
       const secondSlash = entryName.indexOf("/", firstSlash + 1);
       if (secondSlash < 0) continue;
-      const indexName = entryName.slice(0, firstSlash);
-      const subName = entryName.slice(firstSlash + 1, secondSlash);
-      const suffix = entryName.slice(secondSlash + 1);
-      let perIndex = savedSubEntries.get(indexName);
-      if (!perIndex) {
-        perIndex = new Map();
-        savedSubEntries.set(indexName, perIndex);
+      const prefix = entryName.slice(0, secondSlash + 1);
+      let group = byPrefix.get(prefix);
+      if (!group) {
+        group = new Map();
+        byPrefix.set(prefix, group);
       }
-      let perSub = perIndex.get(subName);
-      if (!perSub) {
-        perSub = new Map();
-        perIndex.set(subName, perSub);
+      group.set(entryName.slice(secondSlash + 1), bytes);
+    }
+
+    // Entries written unencoded by earlier versions; a `/` in a name makes the prefix ambiguous,
+    // so they are matched by the full expected prefix.
+    function legacySubEntries(prefix: string): Map<string, Uint8Array> {
+      const found = new Map<string, Uint8Array>();
+      for (const [entryName, bytes] of entryBytes) {
+        if (entryName.startsWith(prefix)) found.set(entryName.slice(prefix.length), bytes);
       }
-      perSub.set(suffix, bytes);
+      return found;
+    }
+
+    function readManifest(entryName: string): IndexManifest | undefined {
+      const bytes = entryBytes.get(entryName);
+      return bytes ? (JSON.parse(decoder.decode(bytes)) as IndexManifest) : undefined;
+    }
+
+    for (const name of knownNames) {
+      // The encoded entry is this Index's only if its manifest names it: in a store written
+      // by an earlier version, `a%20b/__manifest__` is the unencoded entry of an Index named
+      // "a%20b", not the encoded one of "a b".
+      const encoded = readManifest(manifestEntryName(name));
+      const useEncoded = encoded !== undefined && encoded.name === name;
+      const manifest = useEncoded ? encoded : readManifest(`${name}/${MANIFEST_SUFFIX}`);
+      if (!manifest) continue;
+      savedManifests.set(name, manifest);
+
+      const perIndex = new Map<string, Map<string, Uint8Array>>();
+      for (const subName of Object.keys(manifest.subIndexes)) {
+        let entries: Map<string, Uint8Array> | undefined;
+        if (useEncoded) entries = byPrefix.get(subEntryPrefix(name, subName));
+        else {
+          const legacy = legacySubEntries(`${name}/${subName}/`);
+          if (legacy.size > 0) entries = legacy;
+        }
+        if (entries) perIndex.set(subName, entries);
+      }
+      if (perIndex.size > 0) savedSubEntries.set(name, perIndex);
     }
 
     initialized = true;
@@ -186,7 +226,7 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
     const subs = new Map<string, Map<string, Uint8Array>>();
     for (const b of live.getBindings()) {
       manifest.subIndexes[b.name] = { type: b.type, ...(b.config as Record<string, unknown>) };
-      // Persistable bindings stream their entries, saved under `${indexName}/${b.name}/<suffix>`.
+      // Persistable bindings stream their entries, saved under `subEntryPrefix(...)<suffix>`.
       if (!isPersistable(b.index)) continue;
       const entries = new Map<string, Uint8Array>();
       for await (const sub of b.index.serialise()) entries.set(sub.name, await readEntryBytes(sub));
@@ -213,23 +253,21 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
           const live = liveIndexes.get(indexName);
           if (live) {
             const { manifest, subs } = await captureIndex(indexName, live);
-            yield emitEntry(`${indexName}/__manifest__`, toBytes(JSON.stringify(manifest)));
+            yield emitEntry(manifestEntryName(indexName), toBytes(JSON.stringify(manifest)));
             for (const [subName, entries] of subs) {
-              for (const [suffix, bytes] of entries) {
-                yield emitEntry(`${indexName}/${subName}/${suffix}`, bytes);
-              }
+              const prefix = subEntryPrefix(indexName, subName);
+              for (const [suffix, bytes] of entries) yield emitEntry(`${prefix}${suffix}`, bytes);
             }
           } else {
             // Index not open in this session — preserve saved bytes.
             const savedM = savedManifests.get(indexName);
             if (savedM)
-              yield emitEntry(`${indexName}/__manifest__`, toBytes(JSON.stringify(savedM)));
+              yield emitEntry(manifestEntryName(indexName), toBytes(JSON.stringify(savedM)));
             const perIndex = savedSubEntries.get(indexName);
             if (perIndex) {
               for (const [subName, entries] of perIndex) {
-                for (const [suffix, bytes] of entries) {
-                  yield emitEntry(`${indexName}/${subName}/${suffix}`, bytes);
-                }
+                const prefix = subEntryPrefix(indexName, subName);
+                for (const [suffix, bytes] of entries) yield emitEntry(`${prefix}${suffix}`, bytes);
               }
             }
           }
