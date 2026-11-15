@@ -63,6 +63,11 @@ export class MemoryPersistence implements IndexerPersistence {
   listEntryNames(): string[] {
     return [...this.store.keys()];
   }
+
+  /** Test-only: rename every saved entry (used to write data in an older entry-name layout). */
+  renameEntries(rename: (name: string) => string): void {
+    this.store = new Map([...this.store].map(([name, chunks]) => [rename(name), chunks]));
+  }
 }
 
 export function runKernelConformanceSuite(name: string, options: KernelSuiteOptions): void {
