@@ -1,8 +1,14 @@
-import type { SqlBackedDialect, SqlFtsDialect, SqlVectorDialect } from "@statewalker/indexer-core";
+import type {
+  SqlBackedDialect,
+  SqlFtsDialect,
+  SqlNgramDialect,
+  SqlVectorDialect,
+} from "@statewalker/indexer-core";
 import {
   buildSearchFilterSql,
   embeddingToLiteral,
   ISO_639_1_LANGUAGE_NAMES,
+  ngramTrigrams,
   sqlDocsTableName,
 } from "@statewalker/indexer-core";
 
@@ -137,6 +143,28 @@ export const pgliteVectorDialect: SqlVectorDialect = {
 };
 
 /** Aggregate PGlite dialect for `createSqlBackedIndexer`. */
+/**
+ * PGlite n-gram store (`gin`): each row keeps `grams`, the distinct trigrams of its case-folded
+ * content, under a GIN index (core Postgres, no extension). A branch's candidates are the rows
+ * whose `grams` contain every trigram of its literals.
+ */
+export const pgliteNgramDialect: SqlNgramDialect = {
+  store: "gin",
+  createTableDdl({ tableName }) {
+    return [
+      `CREATE TABLE IF NOT EXISTS ${tableName} (doc_id INTEGER NOT NULL, block_id TEXT NOT NULL, content TEXT NOT NULL, metadata TEXT, grams TEXT[] NOT NULL, PRIMARY KEY (doc_id, block_id))`,
+      `CREATE INDEX IF NOT EXISTS ${tableName}_grams_idx ON ${tableName} USING GIN (grams)`,
+    ];
+  },
+  storeColumns(content) {
+    return { grams: ngramTrigrams(content) };
+  },
+  branchSql(literals, startParam) {
+    const grams = [...new Set(literals.flatMap((literal) => ngramTrigrams(literal)))];
+    return { sql: `b.grams @> $${startParam}::text[]`, params: [grams] };
+  },
+};
+
 export const pgliteDialect: SqlBackedDialect = {
   extensionInit: ["CREATE EXTENSION IF NOT EXISTS vector"],
   docsTableDdl(prefix) {
@@ -148,4 +176,5 @@ export const pgliteDialect: SqlBackedDialect = {
   supportsDDLInTransaction: true,
   fts: pgliteFtsDialect,
   vec: pgliteVectorDialect,
+  ngram: pgliteNgramDialect,
 };

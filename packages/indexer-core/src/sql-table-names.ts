@@ -91,6 +91,11 @@ export function sqlVectorTableName(subPrefix: string): string {
   return `idx_${subPrefix}_vec`;
 }
 
+/** An n-gram sub-index's table: `idx_<subPrefix>_ng`. */
+export function sqlNgramTableName(subPrefix: string): string {
+  return `idx_${subPrefix}_ng`;
+}
+
 /** A vector sub-index's HNSW index: `idx_<subPrefix>_vec_hnsw`. */
 export function sqlVectorIndexName(subPrefix: string): string {
   return `idx_${subPrefix}_vec_hnsw`;

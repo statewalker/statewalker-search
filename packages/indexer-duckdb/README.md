@@ -2,7 +2,7 @@
 
 ## What it is
 
-An `Indexer` stored in a DuckDB database. Full-text sub-indexes use DuckDB's `fts` extension (BM25 scoring, Snowball stemmers); vector sub-indexes use the `vss` extension (HNSW index, cosine distance). You pass in a `Db` from `@statewalker/db-api`, so the same code works with DuckDB in Node (`@statewalker/db-duckdb-node`) and in the browser (`@statewalker/db-duckdb-browser`).
+An `Indexer` stored in a DuckDB database. Full-text sub-indexes use DuckDB's `fts` extension (BM25 scoring, Snowball stemmers); vector sub-indexes use the `vss` extension (HNSW index, cosine distance); n-gram (grep) sub-indexes (`{ type: "ngram" }`, `@statewalker/indexer-ngram`) scan a case-folded copy of each block (store `scan`) and verify candidates in JavaScript. You pass in a `Db` from `@statewalker/db-api`, so the same code works with DuckDB in Node (`@statewalker/db-duckdb-node`) and in the browser (`@statewalker/db-duckdb-browser`).
 
 ## Why it exists
 

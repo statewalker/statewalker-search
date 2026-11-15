@@ -54,8 +54,14 @@ export interface NgramSearchSummary {
   truncated: boolean;
 }
 
+/**
+ * A backend's candidate store: `fts5` and `postings` (SQLite), `gin` (PGlite: a GIN index over
+ * the folded trigrams), `scan` (DuckDB: a vectorised scan of the folded content).
+ */
+export type NgramStoreKind = "fts5" | "postings" | "gin" | "scan";
+
 export interface NgramIndexInfo {
-  store: "fts5" | "postings";
+  store: NgramStoreKind;
   metadata?: Metadata;
 }
 
@@ -68,8 +74,11 @@ export interface NgramIndex extends SearchIndex<NgramBlock, NgramQuery, NgramRes
   getIndexInfo(): Promise<NgramIndexInfo>;
 }
 
-/** Creation config. `store` picks the backend's candidate store; backends choose the default. */
+/**
+ * Creation config. `store` picks the backend's candidate store; backends choose the default and
+ * refuse a store they do not have.
+ */
 export interface NgramConfig {
-  store?: "fts5" | "postings";
+  store?: NgramStoreKind;
   metadata?: Metadata;
 }

@@ -14,10 +14,13 @@
 import type { Indexer, ScoredHit, SearchIndex } from "@statewalker/indexer-api";
 import type { FullTextConfig, FullTextIndexInfo } from "@statewalker/indexer-fulltext";
 import { FULL_TEXT_TYPE } from "@statewalker/indexer-fulltext";
+import type { NgramConfig } from "@statewalker/indexer-ngram";
+import { NGRAM_TYPE } from "@statewalker/indexer-ngram";
 import type { VectorConfig, VectorIndexInfo } from "@statewalker/indexer-vector";
 import { VECTOR_TYPE } from "@statewalker/indexer-vector";
 import type { SqlFtsDialect } from "./create-sql-fts-retriever.js";
 import { createSqlFtsRetriever } from "./create-sql-fts-retriever.js";
+import { createSqlNgramRetriever, type SqlNgramDialect } from "./create-sql-ngram-retriever.js";
 import type { SqlVectorDialect } from "./create-sql-vector-retriever.js";
 import { createSqlVectorRetriever } from "./create-sql-vector-retriever.js";
 import type { SubIndexSpec } from "./load-actions.js";
@@ -33,6 +36,7 @@ import {
   type SqlTableNaming,
   sqlDocsTableName,
   sqlFtsTableName,
+  sqlNgramTableName,
   sqlTableNaming,
   sqlVectorIndexName,
   sqlVectorTableName,
@@ -57,6 +61,8 @@ export interface SqlBackedDialect {
   unionAliasSuffix?: string;
   fts: SqlFtsDialect;
   vec: SqlVectorDialect;
+  /** The n-gram (grep) candidate store; when set, the indexer registers the `ngram` modality. */
+  ngram?: SqlNgramDialect;
 }
 
 export interface SqlIndexerOptions {
@@ -159,6 +165,22 @@ function vectorProvider(dialect: SqlVectorDialect): SqlDocsModalityProvider<Vect
   };
 }
 
+/** The n-gram provider over a dialect's `ngram` part. */
+function ngramProvider(dialect: SqlNgramDialect): SqlDocsModalityProvider<NgramConfig> {
+  return {
+    type: NGRAM_TYPE,
+    docTables: (ctx) => [sqlNgramTableName(ctx.prefix)],
+    async open({ db, prefix, docsTable }, config) {
+      const retriever = createSqlNgramRetriever({ db, prefix, docsTable, config, dialect });
+      await retriever.init();
+      return retriever;
+    },
+    async drop({ db, prefix }) {
+      await db.exec(`DROP TABLE IF EXISTS ${sqlNgramTableName(prefix)}`);
+    },
+  };
+}
+
 export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer> {
   const { db, dialect, onClose } = opts;
   const naming = opts.tableNaming ?? sqlTableNaming;
@@ -168,6 +190,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
   for (const p of [
     ftsProvider(dialect.fts),
     vectorProvider(dialect.vec),
+    ...(dialect.ngram ? [ngramProvider(dialect.ngram)] : []),
     ...(opts.providers ?? []),
   ]) {
     providers.set(p.type, p as SqlDocsModalityProvider);

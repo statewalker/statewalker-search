@@ -186,12 +186,18 @@ importers:
 
   packages/indexer-core:
     dependencies:
+      '@statewalker/db-sqlite-index':
+        specifier: 'catalog:'
+        version: 0.1.3
       '@statewalker/indexer-api':
         specifier: workspace:^
         version: link:../indexer-api
       '@statewalker/indexer-fulltext':
         specifier: workspace:^
         version: link:../indexer-fulltext
+      '@statewalker/indexer-ngram':
+        specifier: workspace:^
+        version: link:../indexer-ngram
       '@statewalker/indexer-vector':
         specifier: workspace:^
         version: link:../indexer-vector

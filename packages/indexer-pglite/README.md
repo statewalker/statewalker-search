@@ -2,7 +2,7 @@
 
 ## What it is
 
-An `Indexer` stored in [PGlite](https://github.com/electric-sql/pglite) (PostgreSQL compiled to WASM). Full-text sub-indexes use PostgreSQL `tsvector` columns with a GIN index and `ts_rank_cd` scoring; vector sub-indexes use pgvector with an HNSW cosine index. It runs in the browser, in Node and in workers.
+An `Indexer` stored in [PGlite](https://github.com/electric-sql/pglite) (PostgreSQL compiled to WASM). Full-text sub-indexes use PostgreSQL `tsvector` columns with a GIN index and `ts_rank_cd` scoring; vector sub-indexes use pgvector with an HNSW cosine index; n-gram (grep) sub-indexes (`{ type: "ngram" }`, `@statewalker/indexer-ngram`) keep each block's case-folded trigrams in a `text[]` column under a GIN index (store `gin`, core Postgres, no extension to load) and verify candidates in JavaScript. It runs in the browser, in Node and in workers.
 
 ## Why it exists
 

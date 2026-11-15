@@ -120,9 +120,13 @@ Both builders store `CreateIndexParams.metadata` in the index's manifest entry (
 
 `index.close()` removes the instance from its indexer (the composite's `onClose` hook), so a later `getIndex` opens a new one. The provider-based builder first keeps the closed index's manifest and serialised sub-indexes in memory, so the reopened index has its data and the next save still writes it. `indexer.deleteIndex(name)` works on a closed index too; on an open index it calls that index's own `deleteIndex()`. Both drop every sub-index the manifest names, including those skipped at open. A reinit (`getIndex(name, { subIndexes: { sub: config } })`) checks that the new type is supported before dropping the old sub-index. `close()` and `deleteIndex()` on the composite run every sub-index's step even when one throws, then rethrow (an `AggregateError` when several failed). A SQL full-text dialect may define `drop` to remove auxiliary structures with the table; DuckDB uses it for the `fts_main_<table>` schema.
 
+### N-gram (grep) over SQL
+
+`createSqlNgramRetriever` is the `NgramIndex` of the docs-table backends, registered by `createSqlIndexer` when the dialect has an `ngram` part (`SqlNgramDialect`). Each block is one row of `idx_<subPrefix>_ng` (`doc_id`, `block_id`, `content`, `metadata` and the dialect's store columns). A search plans the pattern (`planQuery`: the folded literals of at least 3 code points per DNF branch), selects the blocks whose store holds every literal of some branch (all blocks when a branch has none), up to 10,000 candidates (`SQL_NGRAM_CANDIDATE_BUDGET`), and verifies them in pages of 500 with the planned JavaScript regex. Hits rank by match count, ties in `(doc_id, block_id)` order; the search is truncated when the budget or `topK` left candidates unchecked. PGlite's store is a GIN-indexed `text[]` of folded trigrams (`gin`), DuckDB's a folded copy of the content scanned with `contains` (`scan`).
+
 ### Dependencies
 
-`@statewalker/indexer-api`, `@statewalker/indexer-fulltext`, `@statewalker/indexer-vector`. No engine dependencies.
+`@statewalker/indexer-api`, `@statewalker/indexer-fulltext`, `@statewalker/indexer-vector`, `@statewalker/indexer-ngram`, and `@statewalker/db-sqlite-index` for its pure-JavaScript n-gram query planner (`planQuery`, `fold`, `trigrams`), so the SQL n-gram retriever plans and verifies patterns exactly as the SQLite backend does. No database engine dependencies.
 
 ## License
 
