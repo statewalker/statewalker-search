@@ -25,6 +25,11 @@ function getTopRankBonus(rank: number): number {
   return 0;
 }
 
+/**
+ * Fuses ranked lists: each item scores `weight / (k + rank)` per list it appears in, plus a
+ * bonus for its best rank in a positively weighted list (+0.05 for rank 1, +0.02 for ranks 2-3).
+ * Returns the `topK` best items (none for `topK <= 0`).
+ */
 export function reciprocalRankFusion(lists: RankedList[], topK: number, k = 60): ScoredItem[] {
   const scores = new Map<string, number>();
   const bestRank = new Map<string, number>();
@@ -38,6 +43,9 @@ export function reciprocalRankFusion(lists: RankedList[], topK: number, k = 60):
       const contribution = w / (k + i + 1);
       scores.set(blockId, (scores.get(blockId) ?? 0) + contribution);
 
+      // Only lists that count positively earn the top-rank bonus: a zero-weight list must not
+      // lift its first item above the second item of a weighted list.
+      if (w <= 0) continue;
       const oneIndexedRank = i + 1;
       const prev = bestRank.get(blockId);
       if (prev === undefined || oneIndexedRank < prev) {
@@ -56,7 +64,7 @@ export function reciprocalRankFusion(lists: RankedList[], topK: number, k = 60):
 
   // Sort descending and slice
   const entries = [...scores.entries()].sort((a, b) => b[1] - a[1]);
-  return entries.slice(0, topK).map(([blockId, score]) => ({
+  return entries.slice(0, Math.max(0, topK)).map(([blockId, score]) => ({
     blockId,
     score,
   }));

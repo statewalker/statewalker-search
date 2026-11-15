@@ -191,3 +191,28 @@ describe("reciprocalRankFusion — top-rank bonus", () => {
     expect(item?.score).toBeCloseTo(1 / 63 + 1 / 61 + 0.05, 10);
   });
 });
+
+describe("reciprocalRankFusion — weights and topK edge cases", () => {
+  const list = (...ids: string[]) => ids.map((blockId) => ({ blockId, score: 1 }));
+
+  it("a zero-weight list contributes nothing, not even the top-rank bonus", () => {
+    const fused = reciprocalRankFusion(
+      [
+        { results: list("a1", "a2"), weight: 1 },
+        { results: list("z1"), weight: 0 },
+      ],
+      10,
+    );
+    expect(fused.map((r) => r.blockId)).toEqual(["a1", "a2", "z1"]);
+    expect(fused.find((r) => r.blockId === "z1")?.score).toBe(0);
+  });
+
+  it("a negative-weight list earns no top-rank bonus", () => {
+    const fused = reciprocalRankFusion([{ results: list("n1"), weight: -1 }], 10);
+    expect(fused.find((r) => r.blockId === "n1")?.score ?? 0).toBeLessThanOrEqual(0);
+  });
+
+  it("a negative topK returns nothing", () => {
+    expect(reciprocalRankFusion([{ results: list("a", "b", "c") }], -1)).toEqual([]);
+  });
+});
