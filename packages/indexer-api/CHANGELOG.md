@@ -1,5 +1,13 @@
 # @statewalker/indexer-api
 
+## 0.1.5
+
+### Patch Changes
+
+- Release of the changes since the last published version:
+  
+  - files changed: README.md
+
 ## 0.1.4
 
 ### Patch Changes
