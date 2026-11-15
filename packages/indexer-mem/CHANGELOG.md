@@ -1,5 +1,24 @@
 # @statewalker/indexer-mem
 
+## 0.2.0
+
+### Minor Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/indexer-core crosses a breaking line
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [6ec4ca7]
+- Updated dependencies [a39847c]
+- Updated dependencies [b0922d4]
+- Updated dependencies [5bcbe42]
+- Updated dependencies [b70f114]
+  - @statewalker/indexer-api@0.1.5
+  - @statewalker/indexer-core@0.2.0
+
 ## 0.1.5
 
 ### Patch Changes
