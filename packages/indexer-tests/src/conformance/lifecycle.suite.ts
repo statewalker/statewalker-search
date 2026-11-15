@@ -17,7 +17,7 @@ import { newFullTextAccess } from "@statewalker/indexer-fulltext";
 import { newVectorAccess } from "@statewalker/indexer-vector";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryPersistence, type SubIndexConfig } from "./kernel.suite.js";
-import { defined } from "./test-utils.js";
+import { collect, defined } from "./test-utils.js";
 import type { IndexerFactory } from "./types.js";
 
 export interface LifecycleSuiteOptions {
@@ -135,6 +135,32 @@ export function runLifecycleConformanceSuite(name: string, options: LifecycleSui
         subIndexes: { q: fullTextConfig, v: vectorConfig },
       });
       expect(await vec.get(again).getSize()).toBe(0);
+    });
+
+    it("deleting documents while a sub-index is skipped keeps that sub-index's rows reachable", async () => {
+      const idx = await indexer.createIndex({
+        name: "t",
+        subIndexes: { q: fullTextConfig, v: vectorConfig },
+      });
+      await addText(idx, "/a", "hello");
+      await addVector(idx, "/a");
+      await idx.close();
+
+      const partial = defined(await indexer.getIndex("t", { subIndexes: { v: { skip: true } } }));
+      await partial.deleteDocuments([{ path: "/a" as DocumentPath }]);
+      await partial.flush();
+      await partial.close();
+
+      const reopened = defined(await indexer.getIndex("t"));
+      expect(await vec.get(reopened).getSize()).toBe(1);
+      expect(await collect(vec.get(reopened).getDocumentPaths())).toEqual(["/a"]);
+      const hits = await collect(
+        vec.get(reopened).search({ embeddings: [new Float32Array([1, 0, 0])], topK: 5 }),
+      );
+      expect(hits.map((h) => h.path)).toEqual(["/a"]);
+
+      await reopened.deleteDocuments([{ path: "/a" as DocumentPath }]);
+      expect(await vec.get(reopened).getSize()).toBe(0);
     });
 
     it("a reinit to an unregistered type throws and keeps the saved data", async () => {
