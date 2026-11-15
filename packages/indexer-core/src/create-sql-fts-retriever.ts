@@ -142,6 +142,9 @@ export function createSqlFtsRetriever(opts: SqlFtsRetrieverOptions): FullTextInd
 
     async addDocument(blocks: FullTextBlock[]): Promise<void> {
       ensureOpen();
+      // Mark dirty before writing: if a block fails part-way, the rows already inserted
+      // still get indexed by the next rebuild.
+      if (dialect.rebuild && blocks.length > 0) dirty = true;
       for (const block of blocks) {
         const docId = await resolveDocId(block.path);
         const metaJson = block.metadata ? JSON.stringify(block.metadata) : null;
@@ -152,7 +155,6 @@ export function createSqlFtsRetriever(opts: SqlFtsRetrieverOptions): FullTextInd
           [docId, block.blockId, block.content, metaJson],
         );
       }
-      if (dialect.rebuild) dirty = true;
     },
 
     async addDocuments(

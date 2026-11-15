@@ -29,6 +29,12 @@ export interface CompositeIndexOptions {
   onAfterDelete?: () => Promise<void>;
   /** Hook invoked after every binding's `deleteIndex` returns. */
   onDeleteIndex?: () => Promise<void>;
+  /**
+   * Hook invoked once by `close()`, after the index refuses further calls and before the
+   * bindings close (so they can still be serialised). Indexers use it to evict the closed
+   * instance from their cache, so `getIndex` can reopen it.
+   */
+  onClose?: () => Promise<void>;
 }
 
 /**
@@ -42,7 +48,7 @@ export interface CompositeIndexOptions {
  * (attached under `binding.name` in `result.subResults`).
  */
 export function createCompositeIndex(opts: CompositeIndexOptions): Index {
-  const { name, metadata, onAfterDelete, onDeleteIndex } = opts;
+  const { name, metadata, onAfterDelete, onDeleteIndex, onClose } = opts;
   const bindings = new Map<string, AnySubIndexBinding>();
   for (const b of opts.bindings ?? []) bindings.set(b.name, b);
   let closed = false;
@@ -86,7 +92,7 @@ export function createCompositeIndex(opts: CompositeIndexOptions): Index {
 
       const active: Active[] = [];
       for (const binding of bindings.values()) {
-        const q = subQueries[binding.name];
+        const q = withDefaultPaths(subQueries[binding.name], request.paths);
         if (q === undefined) continue;
         const hits = new Map<string, ScoredHit>();
         const order: string[] = [];
@@ -158,7 +164,11 @@ export function createCompositeIndex(opts: CompositeIndexOptions): Index {
     async close(options?: { force?: boolean }): Promise<void> {
       if (closed) return;
       closed = true;
-      for (const b of bindings.values()) await b.index.close(options);
+      try {
+        if (onClose) await onClose();
+      } finally {
+        for (const b of bindings.values()) await b.index.close(options);
+      }
     },
 
     async deleteIndex(): Promise<void> {
@@ -168,4 +178,15 @@ export function createCompositeIndex(opts: CompositeIndexOptions): Index {
       closed = true;
     },
   };
+}
+
+/**
+ * The top-level `paths` is the default scope: a sub-query object that sets no `paths` of its
+ * own gets them; one that sets `paths` keeps its own.
+ */
+function withDefaultPaths(query: unknown, paths: SearchRequest["paths"]): unknown {
+  if (!paths || paths.length === 0) return query;
+  if (query === null || typeof query !== "object" || Array.isArray(query)) return query;
+  if ((query as { paths?: unknown }).paths !== undefined) return query;
+  return { ...query, paths };
 }

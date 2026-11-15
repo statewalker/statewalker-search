@@ -16,7 +16,8 @@ export {
   MemoryPersistence,
   runKernelConformanceSuite,
 } from "./conformance/kernel.suite.js";
-
+export type { LifecycleSuiteOptions } from "./conformance/lifecycle.suite.js";
+export { runLifecycleConformanceSuite } from "./conformance/lifecycle.suite.js";
 export type {
   ConfigFactory,
   FullTextModalityHooks,

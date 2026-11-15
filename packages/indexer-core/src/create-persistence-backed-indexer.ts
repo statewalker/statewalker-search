@@ -6,6 +6,7 @@ import type {
   Indexer,
   IndexerPersistence,
   IndexInfo,
+  Metadata,
   ModalityProvider,
   PersistenceEntry,
   ScoredHit,
@@ -162,6 +163,38 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
     return { name: entryName, content: singleChunk(bytes) };
   }
 
+  /**
+   * The manifest and the persistable sub-indexes' entries of an open Index. Sub-indexes skipped
+   * at open (per D9) keep their saved manifest entry and bytes verbatim.
+   */
+  async function captureIndex(
+    indexName: string,
+    live: Index,
+  ): Promise<{ manifest: IndexManifest; subs: Map<string, Map<string, Uint8Array>> }> {
+    const skipped = skippedSubsPerIndex.get(indexName);
+    const savedM = savedManifests.get(indexName);
+    const savedSubs = savedSubEntries.get(indexName);
+
+    // Compose manifest from live bindings + preserved skipped configs.
+    const manifest: IndexManifest = { name: indexName, subIndexes: {} };
+    const subs = new Map<string, Map<string, Uint8Array>>();
+    for (const b of live.getBindings()) {
+      manifest.subIndexes[b.name] = { type: b.type, ...(b.config as Record<string, unknown>) };
+      // Persistable bindings stream their entries, saved under `${indexName}/${b.name}/<suffix>`.
+      if (!isPersistable(b.index)) continue;
+      const entries = new Map<string, Uint8Array>();
+      for await (const sub of b.index.serialise()) entries.set(sub.name, await readEntryBytes(sub));
+      subs.set(b.name, entries);
+    }
+    for (const subName of skipped ?? []) {
+      const spec = savedM?.subIndexes[subName];
+      if (spec) manifest.subIndexes[subName] = spec;
+      const entries = savedSubs?.get(subName);
+      if (entries) subs.set(subName, entries);
+    }
+    return { manifest, subs };
+  }
+
   async function saveToPersistence(): Promise<void> {
     if (!persistence) return;
     const self = {
@@ -173,45 +206,11 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
         for (const indexName of allNames) {
           const live = liveIndexes.get(indexName);
           if (live) {
-            // Skipped sub-indexes (per D9): their saved manifest + entries are
-            // preserved verbatim through the next save.
-            const skipped = skippedSubsPerIndex.get(indexName);
-            const savedM = savedManifests.get(indexName);
-            const savedSubs = savedSubEntries.get(indexName);
-
-            // Compose manifest from live bindings + preserved skipped configs.
-            const manifest: IndexManifest = { name: indexName, subIndexes: {} };
-            for (const b of live.getBindings()) {
-              manifest.subIndexes[b.name] = {
-                type: b.type,
-                ...(b.config as Record<string, unknown>),
-              };
-            }
-            if (skipped && savedM) {
-              for (const subName of skipped) {
-                const spec = savedM.subIndexes[subName];
-                if (spec) manifest.subIndexes[subName] = spec;
-              }
-            }
+            const { manifest, subs } = await captureIndex(indexName, live);
             yield emitEntry(`${indexName}/__manifest__`, toBytes(JSON.stringify(manifest)));
-
-            // Persistable bindings stream their entries under `${indexName}/${b.name}/<suffix>`.
-            for (const b of live.getBindings()) {
-              if (!isPersistable(b.index)) continue;
-              for await (const sub of b.index.serialise()) {
-                const bytes = await readEntryBytes(sub);
-                yield emitEntry(`${indexName}/${b.name}/${sub.name}`, bytes);
-              }
-            }
-
-            // Re-emit saved entries for skipped sub-indexes verbatim.
-            if (skipped && savedSubs) {
-              for (const subName of skipped) {
-                const entries = savedSubs.get(subName);
-                if (!entries) continue;
-                for (const [suffix, bytes] of entries) {
-                  yield emitEntry(`${indexName}/${subName}/${suffix}`, bytes);
-                }
+            for (const [subName, entries] of subs) {
+              for (const [suffix, bytes] of entries) {
+                yield emitEntry(`${indexName}/${subName}/${suffix}`, bytes);
               }
             }
           } else {
@@ -239,7 +238,7 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
     const manifest = savedManifests.get(name);
     if (!manifest) {
       // No saved manifest — Index isn't yet persisted; nothing to load from.
-      return createCompositeIndex({ name });
+      return newComposite(name, []);
     }
 
     const onMissing: "throw" | "warn" = options?.onMissingProvider ?? "throw";
@@ -285,6 +284,8 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
         g.console?.warn(
           `Sub-index "${subName}" (type "${effType}") on index "${name}" has no matching Provider; skipping.`,
         );
+        // Like an explicit skip: keep the saved spec and bytes through the next save.
+        skipped.add(subName);
         continue;
       }
 
@@ -303,7 +304,50 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
     }
 
     if (skipped.size > 0) skippedSubsPerIndex.set(name, skipped);
-    return createCompositeIndex({ name, bindings });
+    else skippedSubsPerIndex.delete(name);
+    return newComposite(name, bindings);
+  }
+
+  /**
+   * Keep the state of an Index that is being closed, so `getIndex` can rebuild it and the
+   * next save still writes it, then drop it from the open set.
+   */
+  async function parkIndex(name: string, index: Index): Promise<void> {
+    const { manifest, subs } = await captureIndex(name, index);
+    savedManifests.set(name, manifest);
+    savedSubEntries.set(name, subs);
+    skippedSubsPerIndex.delete(name);
+    liveIndexes.delete(name);
+  }
+
+  function forgetIndex(name: string): void {
+    liveIndexes.delete(name);
+    savedManifests.delete(name);
+    savedSubEntries.delete(name);
+    skippedSubsPerIndex.delete(name);
+    knownNames.delete(name);
+  }
+
+  function newComposite(name: string, bindings: AnySubIndexBinding[], metadata?: Metadata): Index {
+    const index: Index = createCompositeIndex({
+      name,
+      metadata,
+      bindings,
+      // A closed instance leaves the open set with its state parked, so getIndex reopens it.
+      // Skipped when the instance is no longer the open one (the indexer is closing it, or
+      // createIndex/deleteIndex already replaced or removed it).
+      onClose: async () => {
+        if (closed || liveIndexes.get(name) !== index) return;
+        await runExclusive(async () => {
+          if (!closed && liveIndexes.get(name) === index) await parkIndex(name, index);
+        });
+      },
+      // index.deleteIndex() removes the Index from the indexer too.
+      onDeleteIndex: async () => {
+        if (liveIndexes.get(name) === index) forgetIndex(name);
+      },
+    });
+    return index;
   }
 
   return {
@@ -322,11 +366,8 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
         if (knownNames.has(name) || liveIndexes.has(name)) {
           if (!overwrite) throw new Error(`Index "${name}" already exists`);
           const live = liveIndexes.get(name);
+          forgetIndex(name);
           if (live) await live.close();
-          liveIndexes.delete(name);
-          savedManifests.delete(name);
-          savedSubEntries.delete(name);
-          knownNames.delete(name);
         }
 
         const bindings: AnySubIndexBinding[] = [];
@@ -344,22 +385,25 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
           bindings.push({ name: subName, type, config, index: subIndex });
         }
 
-        const index = createCompositeIndex({ name, metadata, bindings });
+        const index = newComposite(name, bindings, metadata);
         liveIndexes.set(name, index);
         knownNames.add(name);
         return index;
       });
     },
 
-    async getIndex(name: string, options?: GetIndexOptions): Promise<Index | null> {
-      ensureOpen();
-      await ensureInitialized();
-      if (!knownNames.has(name) && !liveIndexes.has(name)) return null;
-      const live = liveIndexes.get(name);
-      if (live) return live;
-      const built = await buildIndex(name, options);
-      liveIndexes.set(name, built);
-      return built;
+    getIndex(name: string, options?: GetIndexOptions): Promise<Index | null> {
+      // Serialised with the other mutating calls, so concurrent first opens build one instance.
+      return runExclusive(async () => {
+        ensureOpen();
+        await ensureInitialized();
+        if (!knownNames.has(name) && !liveIndexes.has(name)) return null;
+        const live = liveIndexes.get(name);
+        if (live) return live;
+        const built = await buildIndex(name, options);
+        liveIndexes.set(name, built);
+        return built;
+      });
     },
 
     async hasIndex(name: string): Promise<boolean> {
@@ -368,32 +412,33 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
       return knownNames.has(name) || liveIndexes.has(name);
     },
 
-    async deleteIndex(name: string): Promise<void> {
-      ensureOpen();
-      await ensureInitialized();
-      const live = liveIndexes.get(name);
-      if (live) {
-        await live.close();
-        liveIndexes.delete(name);
-      }
-      savedManifests.delete(name);
-      savedSubEntries.delete(name);
-      knownNames.delete(name);
+    deleteIndex(name: string): Promise<void> {
+      return runExclusive(async () => {
+        ensureOpen();
+        await ensureInitialized();
+        const live = liveIndexes.get(name);
+        forgetIndex(name);
+        if (live) await live.close();
+      });
     },
 
-    async flush(): Promise<void> {
-      ensureOpen();
-      await ensureInitialized();
-      await saveToPersistence();
+    flush(): Promise<void> {
+      return runExclusive(async () => {
+        ensureOpen();
+        await ensureInitialized();
+        await saveToPersistence();
+      });
     },
 
-    async close(): Promise<void> {
-      if (closed) return;
-      await ensureInitialized();
-      await saveToPersistence();
-      closed = true;
-      for (const index of liveIndexes.values()) await index.close();
-      liveIndexes.clear();
+    close(): Promise<void> {
+      return runExclusive(async () => {
+        if (closed) return;
+        await ensureInitialized();
+        await saveToPersistence();
+        closed = true;
+        for (const index of [...liveIndexes.values()]) await index.close();
+        liveIndexes.clear();
+      });
     },
   };
 }

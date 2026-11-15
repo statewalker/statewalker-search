@@ -18,8 +18,10 @@ import { sanitizePrefix } from "@statewalker/indexer-core";
 import type { FulltextQuery } from "@statewalker/indexer-fulltext";
 import { newFullTextAccess } from "@statewalker/indexer-fulltext";
 import {
+  collect,
   runFullTextMultiWordSuite,
   runKernelConformanceSuite,
+  runLifecycleConformanceSuite,
   runMultiInstanceConformanceSuite,
   runRrfBlendingSuite,
 } from "@statewalker/indexer-tests";
@@ -44,6 +46,12 @@ runKernelConformanceSuite("DuckDB Indexer - in memory", {
   factory: inMemFactory,
   primaryConfig: ftConfig,
   secondaryConfig: vecConfig,
+});
+
+runLifecycleConformanceSuite("DuckDB Indexer - in memory", {
+  factory: inMemFactory,
+  fullTextConfig: ftConfig,
+  vectorConfig: vecConfig,
 });
 
 const ftAccess = newFullTextAccess("q");
@@ -244,6 +252,35 @@ describe("DuckDB Indexer — concurrent createIndex overwrites are serialised", 
       );
       expect(Number(rows[0]?.cnt ?? 0)).toBe(1);
       expect(await indexer.hasIndex("race")).toBe(true);
+    } finally {
+      await indexer.close();
+    }
+  });
+});
+
+describe("DuckDB Indexer — full-text writes that fail part-way", () => {
+  it("blocks inserted before a failing block are searchable", async () => {
+    const db = await newNodeDuckDb();
+    const indexer = await createDuckDbIndexer({ db });
+    try {
+      const idx = await indexer.createIndex({ name: "partial", subIndexes: { q: ftConfig } });
+      const fts = newFullTextAccess("q").get(idx);
+      // Prime the index so a rebuild has already run and the retriever is clean.
+      await fts.addDocument([{ path: "/d/0" as DocumentPath, blockId: "0", content: "zero" }]);
+      expect(
+        (await collect(idx.search({ topK: 5, subQueries: { q: { queries: ["zero"] } } }))).length,
+      ).toBe(1);
+
+      // The second block violates `content NOT NULL`, so the batch fails after the first insert.
+      await expect(
+        fts.addDocument([
+          { path: "/d/1" as DocumentPath, blockId: "a", content: "kept" },
+          { path: "/d/2" as DocumentPath, blockId: "b", content: null as unknown as string },
+        ]),
+      ).rejects.toThrow();
+
+      const hits = await collect(idx.search({ topK: 5, subQueries: { q: { queries: ["kept"] } } }));
+      expect(hits.map((h) => h.blockId)).toEqual(["a"]);
     } finally {
       await indexer.close();
     }

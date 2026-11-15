@@ -218,4 +218,53 @@ describe("createCompositeIndex — open binding registry, name-keyed dispatch", 
     await expect(collect(idx.search({ topK: 5 }))).rejects.toThrow(/closed/);
     await expect(idx.flush()).rejects.toThrow(/closed/);
   });
+
+  it("copies top-level paths into sub-queries that set none, and keeps a sub-query's own", async () => {
+    const a = binding<QueryA & { paths?: DocumentPath[] }, HitA>("a", TYPE_A, []);
+    const b = binding<QueryB & { paths?: DocumentPath[] }, HitB>("b", TYPE_B, []);
+    const idx = createCompositeIndex({ name: "x", bindings: [a, b] });
+    await collect(
+      idx.search({
+        topK: 5,
+        paths: [docA],
+        subQueries: { a: { q: "x" }, b: { q: "y", paths: [docB] } },
+      }),
+    );
+    expect(a.index.searchCalls).toEqual([{ q: "x", paths: [docA] }]);
+    expect(b.index.searchCalls).toEqual([{ q: "y", paths: [docB] }]);
+  });
+
+  it("close() runs onClose once, after refusing calls and before the bindings close", async () => {
+    const a = binding<QueryA, HitA>("a", TYPE_A, []);
+    const order: string[] = [];
+    let searchError: unknown;
+    (a.index.close as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      order.push("binding.close");
+    });
+    const idx = createCompositeIndex({
+      name: "x",
+      bindings: [a],
+      onClose: async () => {
+        order.push("onClose");
+        searchError = await collect(idx.search({ topK: 1 })).catch((e) => e);
+      },
+    });
+    await idx.close();
+    await idx.close();
+    expect(order).toEqual(["onClose", "binding.close"]);
+    expect(String(searchError)).toMatch(/closed/);
+  });
+
+  it("close() still closes the bindings when onClose throws", async () => {
+    const a = binding<QueryA, HitA>("a", TYPE_A, []);
+    const idx = createCompositeIndex({
+      name: "x",
+      bindings: [a],
+      onClose: async () => {
+        throw new Error("hook failed");
+      },
+    });
+    await expect(idx.close()).rejects.toThrow("hook failed");
+    expect(a.index.close).toHaveBeenCalledOnce();
+  });
 });

@@ -20,7 +20,7 @@ One entry point, `@statewalker/indexer-core`. Platform-neutral (no Node or DOM A
 | --- | --- |
 | `createPersistenceBackedIndexer({ providers, persistence? })` | An `Indexer` from a list of `ModalityProvider`s, optionally saved through `IndexerPersistence`. |
 | `createSqlIndexer({ db, dialect, onClose? })` | An `Indexer` over a SQL database, from a `SqlDb` and a `SqlBackedDialect`. Returns a promise. |
-| `createCompositeIndex({ name, metadata?, bindings?, onAfterDelete?, onDeleteIndex? })` | An `Index` over sub-index bindings, used by both builders. |
+| `createCompositeIndex({ name, metadata?, bindings?, onAfterDelete?, onDeleteIndex?, onClose? })` | An `Index` over sub-index bindings, used by both builders. |
 | `createSqlFtsRetriever(opts)` / `createSqlVectorRetriever(opts)` | SQL-backed `FullTextIndex` / `VectorIndex` from a dialect. |
 | `reciprocalRankFusion(lists, topK, k = 60)` | RRF over `RankedList[]`. |
 | `matchesPrefix`, `buildPathPrefixSql`, `buildPathPrefixesSql`, `escapeLikePattern` | Path-prefix matching in memory and in SQL. |
@@ -74,7 +74,7 @@ score(item) = sum over lists of  weight / (k + rank)      k = 60, rank is 1-base
             + 0.02 if its best rank is 2 or 3
 ```
 
-The top-rank bonus keeps an item that one sub-index ranks first from being pushed down by items that appear lower in several lists. `createCompositeIndex` keys items by `compositeKey(path, blockId)` (length-prefixed, so no character in a path or block id can collide with the separator), runs only bindings whose name is in `request.subQueries`, and passes each sub-index only its sub-query. Top-level `request.paths` is not forwarded; top-level `topK` only cuts the fused list.
+The top-rank bonus keeps an item that one sub-index ranks first from being pushed down by items that appear lower in several lists. `createCompositeIndex` keys items by `compositeKey(path, blockId)` (length-prefixed, so no character in a path or block id can collide with the separator), runs only bindings whose name is in `request.subQueries`, and passes each sub-index only its sub-query. Top-level `request.paths` is copied into each sub-query object that sets no `paths` of its own; top-level `topK` only cuts the fused list.
 
 ### Persistence-backed indexer: wire format
 
@@ -99,7 +99,11 @@ Names are passed through `sanitizePrefix`, which replaces every character outsid
 
 ### Writes are serialised
 
-Both builders run mutating calls through `createSerialiser()`: each call waits for the previous one. A failed call does not block the next.
+Both builders run `createIndex`, `getIndex`, `deleteIndex`, `flush` and `close` through `createSerialiser()`: each call waits for the previous one, so concurrent `getIndex` calls for one name open one instance. A failed call does not block the next.
+
+### Closing and deleting an index
+
+`index.close()` removes the instance from its indexer (the composite's `onClose` hook), so a later `getIndex` opens a new one. The provider-based builder first keeps the closed index's manifest and serialised sub-indexes in memory, so the reopened index has its data and the next save still writes it. `indexer.deleteIndex(name)` works on a closed index too, and both it and `index.deleteIndex()` drop every sub-index the manifest names, including those skipped at open. A reinit (`getIndex(name, { subIndexes: { sub: config } })`) checks that the new type is supported before dropping the old sub-index.
 
 ### Dependencies
 

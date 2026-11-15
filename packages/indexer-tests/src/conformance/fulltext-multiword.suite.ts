@@ -71,5 +71,33 @@ export function runFullTextMultiWordSuite(
       expect(rankAll).toBeGreaterThanOrEqual(0);
       expect(rankAll).toBeLessThan(rankOne);
     });
+
+    it.each([
+      "alpha < beta",
+      "alpha > beta",
+      "alpha <-> beta",
+      "<2> alpha",
+      "alpha & | ! ( ) ' \" \\ beta",
+    ])("operator characters in the query are ignored: %s", async (query) => {
+      const request: SearchRequest = { topK: 10, subQueries: { q: { queries: [query] } } };
+      const ids = (await collect(index.search(request))).map((h) => h.blockId);
+      expect(ids).toContain("all");
+      expect(ids).toContain("one");
+    });
+
+    it("a colon separates words instead of joining them", async () => {
+      await access
+        .get(index)
+        .addDocument([
+          { path: "/d/colon" as DocumentPath, blockId: "colon", content: "delta:epsilon" },
+        ]);
+      await indexer.flush();
+      const request: SearchRequest = {
+        topK: 10,
+        subQueries: { q: { queries: ["delta:epsilon"] } },
+      };
+      const ids = (await collect(index.search(request))).map((h) => h.blockId);
+      expect(ids).toContain("colon");
+    });
   });
 }
