@@ -86,7 +86,7 @@ export function createCompositeIndex(opts: CompositeIndexOptions): Index {
 
       const active: Active[] = [];
       for (const binding of bindings.values()) {
-        const q = subQueries[binding.name];
+        const q = withDefaultPaths(subQueries[binding.name], request.paths);
         if (q === undefined) continue;
         const hits = new Map<string, ScoredHit>();
         const order: string[] = [];
@@ -168,4 +168,15 @@ export function createCompositeIndex(opts: CompositeIndexOptions): Index {
       closed = true;
     },
   };
+}
+
+/**
+ * The top-level `paths` is the default scope: a sub-query object that sets no `paths` of its
+ * own gets them; one that sets `paths` keeps its own.
+ */
+function withDefaultPaths(query: unknown, paths: SearchRequest["paths"]): unknown {
+  if (!paths || paths.length === 0) return query;
+  if (query === null || typeof query !== "object" || Array.isArray(query)) return query;
+  if ((query as { paths?: unknown }).paths !== undefined) return query;
+  return { ...query, paths };
 }
