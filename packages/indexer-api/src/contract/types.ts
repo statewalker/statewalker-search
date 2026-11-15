@@ -82,11 +82,15 @@ export type PathSelector = {
  * helpers {@link setSubQuery} / {@link getSubQuery} or a modality Access handle
  * to read/write entries instead of mutating the map directly.
  *
- * `topK` is the final blended cutoff; `paths` is the default scope. Individual
- * sub-queries MAY override both for their own retrieval.
+ * `topK` is the final blended cutoff. `paths` is the default scope: the composite
+ * copies it into each sub-query that sets no `paths` of its own. A sub-query's
+ * own `topK` sets its retrieval depth.
  */
 export interface SearchRequest {
-  /** Path prefixes to restrict the search scope. Defaults to the entire index. */
+  /**
+   * Path prefixes to restrict the search scope. Defaults to the entire index. Applied to every
+   * sub-query that sets no `paths` of its own.
+   */
   paths?: DocumentPath[];
   /** Maximum number of blended results to return. */
   topK: number;
