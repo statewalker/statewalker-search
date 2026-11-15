@@ -1,5 +1,19 @@
 # @statewalker/indexer-pglite
 
+## 0.3.1
+
+### Patch Changes
+
+- Release of the changes since the last published version:
+  
+  - files changed: dist/dialect.js, dist/dialect.js.map, src/dialect.ts
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @statewalker/indexer-core@0.1.3
+  - @statewalker/indexer-fulltext@0.1.4
+  - @statewalker/indexer-vector@0.1.4
+
 ## 0.3.0
 
 ### Minor Changes
