@@ -6,6 +6,7 @@
  * See: src/store.ts (scanBreakPoints)
  */
 
+import { scanFenceLines } from "./fence-lines.js";
 import type { BreakPoint } from "./types.js";
 
 const HEADING_PATTERNS: Array<{ prefix: string; score: number }> = [
@@ -19,70 +20,60 @@ const HEADING_PATTERNS: Array<{ prefix: string; score: number }> = [
 
 const HR_REGEX = /^(---|___|\*\*\*)$/;
 const LIST_REGEX = /^(\d+\.\s|[-*]\s)/;
-const CODE_FENCE_REGEX = /^```/;
+const AFTER_FENCE_SCORE = 80;
 
 /**
  * Scan markdown text for structural break points, returning their
  * character positions and scores.
+ *
+ * Fence lines themselves get no break point (a cut there is inside the
+ * block); the start of the line right after a closing fence scores at
+ * least 80.
  */
 export function scanBreakPoints(text: string): BreakPoint[] {
   if (text.length === 0) return [];
 
+  const fenceLines = new Map<number, "open" | "close">();
+  for (const { lineStart, kind } of scanFenceLines(text)) fenceLines.set(lineStart, kind);
+
   const points: BreakPoint[] = [];
   const lines = text.split("\n");
   let pos = 0;
+  let afterClosingFence = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line === undefined) continue;
-    const trimmed = line.trim();
-
-    // Check for blank line (paragraph break) — a blank line is the \n that
-    // starts it. We detect it when we see an empty trimmed line and there
-    // was a previous line.
-    if (trimmed === "" && i > 0) {
-      points.push({ position: pos, score: 20 });
-      pos += line.length + 1; // +1 for the \n
-      continue;
-    }
-
-    // Code fence boundary
-    if (CODE_FENCE_REGEX.test(trimmed)) {
-      points.push({ position: pos, score: 80 });
-      pos += line.length + 1;
-      continue;
-    }
-
-    // Horizontal rule
-    if (HR_REGEX.test(trimmed)) {
-      points.push({ position: pos, score: 60 });
-      pos += line.length + 1;
-      continue;
-    }
-
-    // Headings (check longest prefix first to avoid false matches)
-    let matched = false;
-    for (const { prefix, score } of HEADING_PATTERNS) {
-      if (line.startsWith(prefix)) {
-        points.push({ position: pos, score });
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched) {
-      // List items
-      if (LIST_REGEX.test(trimmed)) {
-        points.push({ position: pos, score: 5 });
-      } else if (i > 0) {
-        // Plain newline (the newline that ended the previous line)
-        // We record it at the start of this line
-        points.push({ position: pos, score: 1 });
-      }
-    }
-
+    const fence = fenceLines.get(pos);
+    let score = fence === undefined ? lineScore(line, i) : undefined;
+    if (afterClosingFence) score = Math.max(score ?? 0, AFTER_FENCE_SCORE);
+    if (score !== undefined) points.push({ position: pos, score });
+    afterClosingFence = fence === "close";
     pos += line.length + 1; // +1 for the \n
   }
 
   return points;
+}
+
+/** Score of the break point at the start of a non-fence line, if any. */
+function lineScore(line: string, index: number): number | undefined {
+  const trimmed = line.trim();
+
+  // Blank line (paragraph break): the \n that starts it.
+  if (trimmed === "") return index > 0 ? 20 : undefined;
+
+  // Horizontal rule
+  if (HR_REGEX.test(trimmed)) return 60;
+
+  // Headings (longest prefix first to avoid false matches)
+  for (const { prefix, score } of HEADING_PATTERNS) {
+    if (line.startsWith(prefix)) return score;
+  }
+
+  // List items
+  if (LIST_REGEX.test(trimmed)) return 5;
+
+  // Plain newline (the newline that ended the previous line), recorded at
+  // the start of this line
+  return index > 0 ? 1 : undefined;
 }
