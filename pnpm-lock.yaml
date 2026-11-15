@@ -12,6 +12,9 @@ catalogs:
     '@changesets/cli':
       specifier: ^3.0.3
       version: 3.0.3
+    '@electric-sql/pglite':
+      specifier: ^0.5.15
+      version: 0.5.16
     '@electric-sql/pglite-pgvector':
       specifier: ^0.0.9
       version: 0.0.9
@@ -22,11 +25,11 @@ catalogs:
       specifier: ^0.1.0
       version: 0.1.7
     '@statewalker/db-duckdb-node':
-      specifier: ^0.1.0
-      version: 0.1.6
+      specifier: ^0.2.0
+      version: 0.2.0
     '@statewalker/db-pglite':
-      specifier: ^0.1.0
-      version: 0.1.1
+      specifier: ^0.3.0
+      version: 0.3.0
     '@statewalker/db-sqlite':
       specifier: ^0.1.0
       version: 0.1.3
@@ -226,7 +229,7 @@ importers:
     devDependencies:
       '@statewalker/db-duckdb-node':
         specifier: 'catalog:'
-        version: 0.1.6
+        version: 0.2.0
       '@statewalker/indexer-tests':
         specifier: workspace:^
         version: link:../indexer-tests
@@ -404,12 +407,15 @@ importers:
         specifier: workspace:^
         version: link:../indexer-vector
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 'catalog:'
+        version: 0.5.16
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.9(@electric-sql/pglite@0.5.8)
+        version: 0.0.9(@electric-sql/pglite@0.5.16)
       '@statewalker/db-pglite':
         specifier: 'catalog:'
-        version: 0.1.1
+        version: 0.3.0(@electric-sql/pglite@0.5.16)
       '@statewalker/indexer-tests':
         specifier: workspace:^
         version: link:../indexer-tests
@@ -719,8 +725,8 @@ packages:
     peerDependencies:
       '@electric-sql/pglite': 0.5.8
 
-  '@electric-sql/pglite@0.5.8':
-    resolution: {integrity: sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q==}
+  '@electric-sql/pglite@0.5.16':
+    resolution: {integrity: sha512-Nj8KcIsJL748W408U2N8q4+9IlONdpRIU8MJypIAAINMJ5nqKyqpX7Mgg/5XKkXiAib3AoZGR6hnJFlrlLBrcg==}
 
   '@emnapi/core@2.0.0-beta.2':
     resolution: {integrity: sha512-MzCVoWtcg4Pm2B3je5mMvYMvj3MmBKw+fU7vbsJc9/iT8ip6/eYIHo/Dsm/mr+wsHB6SEyJDuxB09Yy6r/8+4A==}
@@ -1135,11 +1141,13 @@ packages:
   '@statewalker/db-api@0.1.7':
     resolution: {integrity: sha512-pOrHF9vIseL4QgjK2voyHHJmKTV1MPaGo2MwWemVYTOZ0aQ8E3NP/IKCBh0gu+IjFY8FnPJ00FxafS0YxjwxVw==}
 
-  '@statewalker/db-duckdb-node@0.1.6':
-    resolution: {integrity: sha512-LaNHNCbppqygkHxzD/0zwmHmVAhA9oE/oSJ1e88cHy0XFzakpeV8scy+3L5khulxQ7uA/pVGAjSUZm+zXFF6KA==}
+  '@statewalker/db-duckdb-node@0.2.0':
+    resolution: {integrity: sha512-33Vy7gYDMH0PAcuxFy7I3Pg96OGV0V0baWVs/HbYU78Ta+aFi/xZ0Ep+sqmMnL8jn5e+qwGgGYptJ9rWFhknBQ==}
 
-  '@statewalker/db-pglite@0.1.1':
-    resolution: {integrity: sha512-Sds0XPjSFjN+ehCmAAeoPMUfPegbH0TKKDUJBCA/N/uKPwKEx8hNn5DjjXYjwFYz06XRXolsGS4YSgGomVSfbw==}
+  '@statewalker/db-pglite@0.3.0':
+    resolution: {integrity: sha512-CQ0cHMXZ0zLcXIWTmJDJjCi9WoLzvfZ7+ziuJIk/RJ+iZpTvQKsDjZgL8EQVf/w4YrYktIdSchTkrFbV1OpPhw==}
+    peerDependencies:
+      '@electric-sql/pglite': ^0.5.15
 
   '@statewalker/db-sqlite-do@0.1.3':
     resolution: {integrity: sha512-ZiFkGejE/PZyn9ExZlfQ5wxm9W54LpySp+GNx9pt2O5N3WQ5PvSHX6zaBN3+uAujTgVPJuaQctW0LQaSCkImaA==}
@@ -2473,11 +2481,11 @@ snapshots:
       '@duckdb/node-bindings-win32-arm64': 1.5.5-r.5
       '@duckdb/node-bindings-win32-x64': 1.5.5-r.5
 
-  '@electric-sql/pglite-pgvector@0.0.9(@electric-sql/pglite@0.5.8)':
+  '@electric-sql/pglite-pgvector@0.0.9(@electric-sql/pglite@0.5.16)':
     dependencies:
-      '@electric-sql/pglite': 0.5.8
+      '@electric-sql/pglite': 0.5.16
 
-  '@electric-sql/pglite@0.5.8': {}
+  '@electric-sql/pglite@0.5.16': {}
 
   '@emnapi/core@2.0.0-beta.2':
     dependencies:
@@ -2740,15 +2748,17 @@ snapshots:
 
   '@statewalker/db-api@0.1.7': {}
 
-  '@statewalker/db-duckdb-node@0.1.6':
+  '@statewalker/db-duckdb-node@0.2.0':
     dependencies:
       '@duckdb/node-api': 1.5.5-r.5
       '@statewalker/db-api': 0.1.7
+      '@statewalker/db-sqlite': 0.1.3
 
-  '@statewalker/db-pglite@0.1.1':
+  '@statewalker/db-pglite@0.3.0(@electric-sql/pglite@0.5.16)':
     dependencies:
-      '@electric-sql/pglite': 0.5.8
+      '@electric-sql/pglite': 0.5.16
       '@statewalker/db-api': 0.1.7
+      '@statewalker/db-sqlite': 0.1.3
 
   '@statewalker/db-sqlite-do@0.1.3':
     dependencies:
