@@ -12,12 +12,12 @@ catalog:
   unpdf: ^1.8.1
   "@biomejs/biome": ^2.5.15
   "@changesets/cli": ^3.0.3
-  "@electric-sql/pglite": ^0.5.8
+  "@electric-sql/pglite": ^0.5.15
   # pgvector left the pglite package in 0.5 (was @electric-sql/pglite/vector)
   "@electric-sql/pglite-pgvector": ^0.0.9
   "@statewalker/db-api": ^0.1.0
-  "@statewalker/db-duckdb-node": ^0.1.0
-  "@statewalker/db-pglite": ^0.1.0
+  "@statewalker/db-duckdb-node": ^0.2.0
+  "@statewalker/db-pglite": ^0.3.0
   "@statewalker/db-sqlite": ^0.1.0
   "@statewalker/db-sqlite-do": ^0.1.0
   "@statewalker/db-sqlite-index": ^0.1.0
