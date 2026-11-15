@@ -13,7 +13,7 @@
 import { vector } from "@electric-sql/pglite-pgvector";
 import type { Db } from "@statewalker/db-api";
 import { newPgliteDb } from "@statewalker/db-pglite";
-import type { DocumentPath, Index } from "@statewalker/indexer-api";
+import type { DocumentPath, Index, IndexerPersistence } from "@statewalker/indexer-api";
 import { sanitizePrefix } from "@statewalker/indexer-core";
 import type { FulltextQuery } from "@statewalker/indexer-fulltext";
 import { newFullTextAccess } from "@statewalker/indexer-fulltext";
@@ -37,8 +37,19 @@ async function newDb(): Promise<Db> {
   return db;
 }
 
+// The kernel suite's "persistence" is the database itself: `createWithPersistence(p)` reuses one
+// database per `p`, so a second indexer reopens what the first one wrote.
+const dbsByPersistence = new WeakMap<IndexerPersistence, Db>();
 const factory = {
   create: async () => createPGLiteIndexer({ db: await newDb() }),
+  createWithPersistence: async (persistence: IndexerPersistence) => {
+    let db = dbsByPersistence.get(persistence);
+    if (!db) {
+      db = await newDb();
+      dbsByPersistence.set(persistence, db);
+    }
+    return createPGLiteIndexer({ db });
+  },
   cleanup: async () => {
     for (const db of openDbs.splice(0)) await db.close();
   },

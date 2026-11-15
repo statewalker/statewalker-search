@@ -189,10 +189,10 @@ export function runKernelConformanceSuite(name: string, options: KernelSuiteOpti
     });
 
     describe("manifest round-trip + load actions", () => {
-      it("adopt (default): saved Index reopens with the same bindings + configs", async () => {
+      it("adopt (default): saved Index reopens with the same bindings + configs", async (ctx) => {
         const persistence = new MemoryPersistence();
         const createWithPersistence = factory.createWithPersistence;
-        if (!createWithPersistence) return; // backend doesn't support persistence
+        if (!createWithPersistence) return ctx.skip("the backend has no createWithPersistence");
 
         const indexer1 = await createWithPersistence(persistence);
         await indexer1.createIndex({
@@ -212,10 +212,10 @@ export function runKernelConformanceSuite(name: string, options: KernelSuiteOpti
         await indexer2.close();
       });
 
-      it("skip: omits a saved name from the reopened Index; saved bytes preserved", async () => {
+      it("skip: omits a saved name from the reopened Index; saved bytes preserved", async (ctx) => {
         const persistence = new MemoryPersistence();
         const createWithPersistence = factory.createWithPersistence;
-        if (!createWithPersistence) return;
+        if (!createWithPersistence) return ctx.skip("the backend has no createWithPersistence");
 
         const indexer1 = await createWithPersistence(persistence);
         await indexer1.createIndex({
@@ -240,10 +240,10 @@ export function runKernelConformanceSuite(name: string, options: KernelSuiteOpti
         expect(after).toEqual(before);
       });
 
-      it("reinit: rebuilds a binding from supplied config; manifest reflects it on next save", async () => {
+      it("reinit: rebuilds a binding from supplied config; manifest reflects it on next save", async (ctx) => {
         const persistence = new MemoryPersistence();
         const createWithPersistence = factory.createWithPersistence;
-        if (!createWithPersistence) return;
+        if (!createWithPersistence) return ctx.skip("the backend has no createWithPersistence");
 
         const indexer1 = await createWithPersistence(persistence);
         await indexer1.createIndex({
@@ -253,33 +253,45 @@ export function runKernelConformanceSuite(name: string, options: KernelSuiteOpti
         await indexer1.flush();
         await indexer1.close();
 
+        // Same type, changed config: the reinit must be what the next indexer sees.
+        const changed = { ...primaryConfig, metadata: { reinit: 1 } } satisfies SubIndexConfig;
         const indexer2 = await createWithPersistence(persistence);
-        const reopened = await indexer2.getIndex("test", {
-          subIndexes: { primary: primaryConfig satisfies SubIndexConfig },
-        });
-        // Reinit always rebuilds — binding exists, with the supplied type.
+        const reopened = await indexer2.getIndex("test", { subIndexes: { primary: changed } });
         expect(reopened?.getBinding("primary")?.type).toBe(primaryConfig.type);
+        await indexer2.flush();
         await indexer2.close();
+
+        const indexer3 = await createWithPersistence(persistence);
+        const again = await indexer3.getIndex("test");
+        expect(
+          (again?.getBinding("primary")?.config as SubIndexConfig | undefined)?.metadata,
+        ).toEqual({
+          reinit: 1,
+        });
+        await indexer3.close();
       });
 
-      it("onMissingProvider: 'throw' (default) raises when a saved type has no Provider", async () => {
-        const persistence = new MemoryPersistence();
-        const createWithPersistence = factory.createWithPersistence;
-        if (!createWithPersistence) return;
-
-        // Seed the manifest with a phantom type. We do this through the kernel
-        // by writing a manifest blob directly — but we have no public API for
-        // that. Instead, save a real Index, then construct a second Indexer
-        // whose Providers cannot serve the saved type. Since we cannot control
-        // that from inside the suite (the backend wires its Providers), we
-        // verify the policy through a no-op path: opening a non-existent Index
-        // returns null without engaging the policy.
-        const indexer = await createWithPersistence(persistence);
-        const result = await indexer.getIndex("does-not-exist", {
-          onMissingProvider: "throw",
-        });
-        expect(result).toBeNull();
-        await indexer.close();
+      it("onMissingProvider: 'throw' (default) raises when a sub-index's type has no Provider", async () => {
+        const indexer = await factory.create();
+        try {
+          await indexer.createIndex({ name: "test", subIndexes: { primary: primaryConfig } });
+          await indexer.flush();
+          const live = await indexer.getIndex("test");
+          await live?.close();
+          // A reinit to an unregistered type is the portable way to reach the policy.
+          await expect(
+            indexer.getIndex("test", { subIndexes: { primary: { type: "no-such-modality" } } }),
+          ).rejects.toThrow(/no-such-modality/);
+          const warned = await indexer.getIndex("test", {
+            onMissingProvider: "warn",
+            subIndexes: { primary: { type: "no-such-modality" } },
+          });
+          expect(warned?.getBinding("primary")).toBeUndefined();
+          expect(await indexer.getIndex("does-not-exist")).toBeNull();
+        } finally {
+          await indexer.close();
+          await factory.cleanup?.();
+        }
       });
     });
 

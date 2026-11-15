@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { newNodeDuckDb } from "@statewalker/db-duckdb-node";
-import type { DocumentPath, Index } from "@statewalker/indexer-api";
+import type { DocumentPath, Index, IndexerPersistence } from "@statewalker/indexer-api";
 import { sanitizePrefix } from "@statewalker/indexer-core";
 import type { FulltextQuery } from "@statewalker/indexer-fulltext";
 import { newFullTextAccess } from "@statewalker/indexer-fulltext";
@@ -32,9 +32,23 @@ import { createDuckDbIndexer } from "../src/duckdb-indexer.js";
 
 const TEST_DB_DIR = join(fileURLToPath(new URL(".", import.meta.url)), ".testdb");
 
+// The kernel suite's "persistence" is the database itself: `createWithPersistence(p)` reuses one
+// in-memory database per `p`, so a second indexer reopens what the first one wrote.
+const dbsByPersistence = new WeakMap<
+  IndexerPersistence,
+  Awaited<ReturnType<typeof newNodeDuckDb>>
+>();
 const inMemFactory = {
   create: async () => {
     const db = await newNodeDuckDb();
+    return createDuckDbIndexer({ db });
+  },
+  createWithPersistence: async (persistence: IndexerPersistence) => {
+    let db = dbsByPersistence.get(persistence);
+    if (!db) {
+      db = await newNodeDuckDb();
+      dbsByPersistence.set(persistence, db);
+    }
     return createDuckDbIndexer({ db });
   },
 };
