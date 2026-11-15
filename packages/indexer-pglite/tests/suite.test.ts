@@ -18,6 +18,7 @@ import { sanitizePrefix } from "@statewalker/indexer-core";
 import type { FulltextQuery } from "@statewalker/indexer-fulltext";
 import { newFullTextAccess } from "@statewalker/indexer-fulltext";
 import {
+  collect,
   runFullTextMultiWordSuite,
   runKernelConformanceSuite,
   runLifecycleConformanceSuite,
@@ -236,6 +237,29 @@ describe("PGLite Indexer — concurrent createIndex overwrites are serialised", 
     } finally {
       await indexer.close();
       await db.close();
+    }
+  });
+});
+
+describe("PGLite FTS — words with combining marks", () => {
+  it.each([
+    ["Hindi", "हिन्दी भाषा", "हिन्दी"],
+    ["decomposed (NFD) Latin", "un café noir".normalize("NFD"), "café".normalize("NFD")],
+  ])("a %s word in the query matches the stored word", async (_label, content, query) => {
+    const indexer = await factory.create();
+    try {
+      const idx = await indexer.createIndex({
+        name: "marks",
+        subIndexes: { q: { type: "fulltext", language: "simple" } },
+      });
+      await newFullTextAccess("q")
+        .get(idx)
+        .addDocument([{ path: "/d/1" as DocumentPath, blockId: "a", content }]);
+      const hits = await collect(idx.search({ topK: 5, subQueries: { q: { queries: [query] } } }));
+      expect(hits.map((h) => h.blockId)).toEqual(["a"]);
+    } finally {
+      await indexer.close();
+      await factory.cleanup();
     }
   });
 });
