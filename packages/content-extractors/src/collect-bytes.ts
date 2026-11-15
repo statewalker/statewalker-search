@@ -1,3 +1,12 @@
+/** Options for {@link collectBytes} and {@link collectText}. */
+export interface CollectOptions {
+  /**
+   * Largest input accepted, in bytes. Reading stops and an error is thrown as soon as the total
+   * exceeds it, so an oversized or endless stream is never held in memory. No limit when omitted.
+   */
+  maxBytes?: number;
+}
+
 /**
  * Bridges the streaming world (chunked iterables from fetch, file reads,
  * etc.) with libraries that require a single contiguous buffer (pdfjs-dist,
@@ -6,12 +15,17 @@
  */
 export async function collectBytes(
   content: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+  options: CollectOptions = {},
 ): Promise<Uint8Array> {
+  const { maxBytes = Number.POSITIVE_INFINITY } = options;
   const chunks: Uint8Array[] = [];
   let totalLength = 0;
   for await (const chunk of content) {
-    chunks.push(chunk);
     totalLength += chunk.length;
+    if (totalLength > maxBytes) {
+      throw new Error(`Input exceeds the limit of ${maxBytes} bytes`);
+    }
+    chunks.push(chunk);
   }
   const first = chunks[0];
   if (chunks.length === 1 && first) {
@@ -33,7 +47,8 @@ export async function collectBytes(
  */
 export async function collectText(
   content: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+  options: CollectOptions = {},
 ): Promise<string> {
-  const bytes = await collectBytes(content);
+  const bytes = await collectBytes(content, options);
   return new TextDecoder().decode(bytes);
 }
