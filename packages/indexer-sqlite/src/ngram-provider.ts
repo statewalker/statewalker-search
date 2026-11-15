@@ -53,6 +53,11 @@ export function newSqliteNgramProvider(): SqliteModalityProvider<NgramConfig, Ng
 
     async open({ db, prefix, blockIds }, config) {
       const storeKind = config.store ?? "fts5";
+      if (storeKind !== "fts5" && storeKind !== "postings") {
+        throw new Error(
+          `ngram: store "${storeKind}" is not available on this backend (it has "fts5" and "postings")`,
+        );
+      }
       const store = new NgramStore({ db, prefix: `${prefix}ng_`, store: storeKind });
       await store.init();
       const list = newEnumeration(db, blockIds, `SELECT id FROM ${store.idTable}`, () =>

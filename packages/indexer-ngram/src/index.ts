@@ -11,4 +11,5 @@ export {
   type NgramQuery,
   type NgramResult,
   type NgramSearchSummary,
+  type NgramStoreKind,
 } from "./types.js";

@@ -5,7 +5,9 @@
 The n-gram / regex modality contract for `@statewalker/indexer-api`: the block, query and result
 types, the `NGRAM_TYPE` discriminator, config helpers, a typed access handle (`newNgramAccess`) and
 a `grep` helper. It holds no engine; a backend registers a sub-index of type `"ngram"` that
-implements `NgramIndex`. `@statewalker/indexer-sqlite` (`newSqliteNgramProvider()`) is such a backend.
+implements `NgramIndex`. `@statewalker/indexer-sqlite` (`newSqliteNgramProvider()`, stores `fts5` and
+`postings`), `@statewalker/indexer-duckdb` (store `scan`) and `@statewalker/indexer-pglite` (store `gin`)
+are such backends.
 
 ## Why exact-match search needs its own modality
 
@@ -71,7 +73,8 @@ for await (const entry of index.search(request)) {
   exclusive; `line` is 1-based.
 - **Case.** `caseSensitive` defaults to `true` (grep semantics).
 - **Limits.** `topK` defaults to 100 and caps returned blocks; `topK: 0` returns no hits. A backend
-  may stop verifying candidates early (the SQLite backend's candidate budget is 10,000). Either cut
+  may stop verifying candidates early (the SQLite, DuckDB and PGlite backends' candidate budget is
+  10,000). Either cut
   sets `truncated: true`.
 - **Regex dialect.** `regex: true` compiles a JavaScript regular expression without the `u` flag:
   `.` matches one UTF-16 code unit and `\u{...}` is not a code-point escape. Patterns containing
@@ -79,6 +82,9 @@ for await (const entry of index.search(request)) {
 - **`truncated` travels as the generator's return value.** `NgramIndex.search` yields hits and
   returns `{ truncated }`. A `for await` over `search` silently ignores truncation and shows
   possibly incomplete results as complete; use `grep`, which reads the return value.
+- **Stores.** `NgramConfig.store` picks the backend's candidate store; a backend refuses a store it
+  does not have. All three SQL backends plan a pattern with the same planner and verify
+  candidates with the same JavaScript regex, so they return the same matches.
 - **Dependencies.** Only `@statewalker/indexer-api`; no engine, no database package.
 
 ## License

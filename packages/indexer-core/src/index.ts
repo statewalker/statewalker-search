@@ -21,6 +21,14 @@ export {
   type SqlIndexerOptions,
 } from "./create-sql-indexer.js";
 export {
+  createSqlNgramRetriever,
+  foldNgramText,
+  ngramTrigrams,
+  SQL_NGRAM_CANDIDATE_BUDGET,
+  type SqlNgramDialect,
+  type SqlNgramRetrieverOptions,
+} from "./create-sql-ngram-retriever.js";
+export {
   createSqlVectorRetriever,
   type SqlVectorDialect,
   type SqlVectorRetrieverOptions,
@@ -66,6 +74,7 @@ export {
   type SqlTableNaming,
   sqlDocsTableName,
   sqlFtsTableName,
+  sqlNgramTableName,
   sqlTableNaming,
   sqlVectorIndexName,
   sqlVectorTableName,

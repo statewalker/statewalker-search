@@ -37,6 +37,9 @@ export { runNgramConformanceSuite } from "./conformance/ngram.suite.js";
 export type { RrfSuiteOptions } from "./conformance/rrf-blending.suite.js";
 export { runRrfBlendingSuite } from "./conformance/rrf-blending.suite.js";
 
+export type { SqlNgramSuiteOptions } from "./conformance/sql-ngram.suite.js";
+export { runSqlNgramSuite } from "./conformance/sql-ngram.suite.js";
+
 export type { SqlTableNamesSuiteOptions } from "./conformance/sql-table-names.suite.js";
 export { runSqlTableNamesSuite } from "./conformance/sql-table-names.suite.js";
 

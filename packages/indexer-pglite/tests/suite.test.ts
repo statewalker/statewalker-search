@@ -14,16 +14,25 @@ import { vector } from "@electric-sql/pglite-pgvector";
 import type { Db } from "@statewalker/db-api";
 import { newPgliteDb } from "@statewalker/db-pglite";
 import type { DocumentPath, Index, IndexerPersistence } from "@statewalker/indexer-api";
-import { createSqlIndexer, legacySqlTableNaming, sqlTableNaming } from "@statewalker/indexer-core";
+import {
+  createSqlIndexer,
+  createSqlNgramRetriever,
+  legacySqlTableNaming,
+  sqlDocsTableName,
+  sqlTableNaming,
+} from "@statewalker/indexer-core";
 import type { FulltextQuery } from "@statewalker/indexer-fulltext";
 import { newFullTextAccess } from "@statewalker/indexer-fulltext";
 import {
   collect,
+  defined,
   runFullTextMultiWordSuite,
   runKernelConformanceSuite,
   runLifecycleConformanceSuite,
   runMultiInstanceConformanceSuite,
+  runNgramConformanceSuite,
   runRrfBlendingSuite,
+  runSqlNgramSuite,
   runSqlTableNamesSuite,
 } from "@statewalker/indexer-tests";
 import type { VectorQuery } from "@statewalker/indexer-vector";
@@ -289,3 +298,68 @@ runSqlTableNamesSuite("PGLite Indexer", {
   fullTextConfig: ftConfig,
   vectorConfig: vecConfig,
 });
+
+// =============================================================================
+// N-gram (grep) sub-index: the backend-agnostic contract plus the SQL specifics.
+// =============================================================================
+
+runNgramConformanceSuite("PGLite n-gram", {
+  factory: factory,
+  config: { type: "ngram" },
+});
+
+runSqlNgramSuite("PGLite n-gram", {
+  factory: factory,
+  store: "gin",
+  foreignStore: "scan",
+});
+
+describe("PGLite n-gram — candidate budget", () => {
+  it("stops after the budget and reports truncation", async () => {
+    const raw = await newPgliteDb({ extensions: { vector } });
+    const db = raw;
+    try {
+      for (const stmt of pgliteDialect.docsTableDdl("bud")) await db.exec(stmt);
+      const ngram = defined(pgliteDialect.ngram);
+      const make = (candidateBudget: number) =>
+        createSqlNgramRetriever({
+          db,
+          prefix: "bud_g",
+          docsTable: sqlDocsTableName("bud"),
+          config: {},
+          dialect: ngram,
+          candidateBudget,
+        });
+      const sub = make(2);
+      await sub.init();
+      for (const id of ["1", "2", "3"]) {
+        await sub.addDocument([
+          { path: `/b/${id}` as DocumentPath, blockId: id, content: "needle" },
+        ]);
+      }
+      const cut = await collectWithSummary(sub.search({ pattern: "needle" }));
+      expect(cut.hits.map((h) => h.blockId)).toEqual(["1", "2"]);
+      expect(cut.truncated).toBe(true);
+      // A pattern with no usable literal scans, within the same budget.
+      const scan = await collectWithSummary(sub.search({ pattern: "e+", regex: true }));
+      expect(scan.hits).toHaveLength(2);
+      expect(scan.truncated).toBe(true);
+      const whole = await collectWithSummary(make(3).search({ pattern: "needle" }));
+      expect(whole.hits).toHaveLength(3);
+      expect(whole.truncated).toBe(false);
+    } finally {
+      await raw.close();
+    }
+  });
+});
+
+async function collectWithSummary<T, S extends { truncated: boolean } | undefined>(
+  it: AsyncGenerator<T, S>,
+): Promise<{ hits: T[]; truncated: boolean }> {
+  const hits: T[] = [];
+  for (;;) {
+    const step = await it.next();
+    if (step.done) return { hits, truncated: step.value?.truncated ?? false };
+    hits.push(step.value);
+  }
+}

@@ -4,11 +4,13 @@ import type {
   SqlBackedDialect,
   SqlDb,
   SqlFtsDialect,
+  SqlNgramDialect,
   SqlVectorDialect,
 } from "@statewalker/indexer-core";
 import {
   buildSearchFilterSql,
   embeddingToLiteral,
+  foldNgramText,
   ISO_639_1_LANGUAGE_NAMES,
   sqlDocsTableName,
 } from "@statewalker/indexer-core";
@@ -164,6 +166,29 @@ export const duckdbVectorDialect: SqlVectorDialect = {
 };
 
 /** Aggregate DuckDB dialect for `createSqlBackedIndexer`. */
+/**
+ * DuckDB n-gram store (`scan`): each row keeps `folded`, its case-folded content, and a branch's
+ * candidates are the rows whose `folded` contains every literal: a vectorised scan of one
+ * column, since DuckDB has no trigram or inverted index.
+ */
+export const duckdbNgramDialect: SqlNgramDialect = {
+  store: "scan",
+  createTableDdl({ tableName }) {
+    return [
+      `CREATE TABLE IF NOT EXISTS ${tableName} (doc_id INTEGER NOT NULL, block_id TEXT NOT NULL, content TEXT NOT NULL, metadata TEXT, folded TEXT NOT NULL, PRIMARY KEY (doc_id, block_id))`,
+    ];
+  },
+  storeColumns(content) {
+    return { folded: foldNgramText(content) };
+  },
+  branchSql(literals, startParam) {
+    return {
+      sql: literals.map((_, i) => `contains(b.folded, $${startParam + i})`).join(" AND "),
+      params: literals,
+    };
+  },
+};
+
 export const duckdbDialect: SqlBackedDialect = {
   extensionInit: [
     "INSTALL fts; LOAD fts;",
@@ -183,4 +208,5 @@ export const duckdbDialect: SqlBackedDialect = {
   unionAliasSuffix: "",
   fts: duckdbFtsDialect,
   vec: duckdbVectorDialect,
+  ngram: duckdbNgramDialect,
 };
