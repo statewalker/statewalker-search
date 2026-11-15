@@ -1,5 +1,13 @@
 # @statewalker/indexer-fulltext
 
+## 0.1.6
+
+### Patch Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/indexer-api ^0.1.4 -> ^0.1.5
+
 ## 0.1.5
 
 ### Patch Changes
