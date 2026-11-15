@@ -1,27 +1,23 @@
+import { scanFenceLines } from "./fence-lines.js";
 import type { CodeFence } from "./types.js";
 
 /**
- * Find all code fence regions (``` delimited) in the text.
- * Returns pairs of {start, end} character positions.
+ * Find all fenced code blocks (``` or ~~~, CommonMark fence rule) in the text.
+ * Returns pairs of {start, end} character positions: `start` is the start of
+ * the opening fence line, `end` the start of the closing fence line.
  * An unclosed fence extends to the end of the text.
  */
 export function findCodeFences(text: string): CodeFence[] {
   const fences: CodeFence[] = [];
-  const lines = text.split("\n");
-  let pos = 0;
   let openStart: number | null = null;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("```")) {
-      if (openStart === null) {
-        openStart = pos;
-      } else {
-        fences.push({ start: openStart, end: pos });
-        openStart = null;
-      }
+  for (const { lineStart, kind } of scanFenceLines(text)) {
+    if (kind === "open") {
+      openStart = lineStart;
+    } else if (openStart !== null) {
+      fences.push({ start: openStart, end: lineStart });
+      openStart = null;
     }
-    pos += line.length + 1;
   }
 
   // Unclosed fence extends to end
