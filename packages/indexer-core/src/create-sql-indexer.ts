@@ -270,6 +270,20 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     return { bindings, effectiveSpec };
   }
 
+  /** The tables of the sub-indexes of known types in a manifest spec. */
+  function subIndexTables(
+    indexPrefix: string,
+    subIndexes: Record<string, { type: string } & Record<string, unknown>>,
+  ): string[] {
+    const tables: string[] = [];
+    for (const [subName, spec] of Object.entries(subIndexes)) {
+      const sp = sqlSubIndexPrefix(indexPrefix, subName);
+      if (spec.type === FULL_TEXT_TYPE) tables.push(sqlFtsTableName(sp));
+      else if (spec.type === VECTOR_TYPE) tables.push(sqlVectorTableName(sp));
+    }
+    return tables;
+  }
+
   /** Drop every table of an Index named in its manifest entry, and the entry itself. */
   async function deleteIndexData(name: string): Promise<void> {
     const entry = manifest.get(name);
@@ -302,12 +316,10 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
       // Reclaim doc rows orphaned by the per-sub-index DELETEs.
       onAfterDelete: async () => {
         // A doc is orphaned when no sub-index table references its doc_id any
-        // more. Enumerate the in-memory bindings' table names; if zero
-        // references remain across all of them, drop the doc row.
-        const subTables = bindings.map((b) => {
-          const sp = sqlSubIndexPrefix(indexPrefix, b.name);
-          return b.type === FULL_TEXT_TYPE ? sqlFtsTableName(sp) : sqlVectorTableName(sp);
-        });
+        // more. Enumerate the tables of every sub-index in the manifest, not only
+        // the open bindings: a sub-index skipped at open (or under "warn") keeps
+        // its rows, which still reference their doc rows.
+        const subTables = subIndexTables(indexPrefix, manifest.get(name)?.subIndexes ?? {});
         if (subTables.length === 0) {
           await db.exec(`DELETE FROM ${docsTable}`);
           return;
