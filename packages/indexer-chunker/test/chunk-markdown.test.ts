@@ -185,3 +185,140 @@ describe("chunkMarkdown", () => {
     });
   });
 });
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function expectWellFormedChunks(text: string, chunks: ReturnType<typeof chunkMarkdown>) {
+  expect(chunks.length).toBeGreaterThan(0);
+  expect(chunks[0]?.startPos).toBe(0);
+  expect(chunks[chunks.length - 1]?.endPos).toBe(text.length);
+  let prevEnd = 0;
+  for (const c of chunks) {
+    expect(c.endPos).toBeLessThanOrEqual(text.length);
+    expect(c.startPos).toBeLessThan(c.endPos);
+    expect(c.startPos).toBeLessThanOrEqual(prevEnd);
+    // Each chunk reaches past the previous one: none lies inside it.
+    if (c.index > 0) expect(c.endPos).toBeGreaterThan(prevEnd);
+    expect(c.content).toBe(text.slice(c.startPos, c.endPos));
+    prevEnd = c.endPos;
+  }
+}
+
+describe("chunkMarkdown: option validation", () => {
+  const text = "# Title\n\nSome text.";
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1.5])(
+    "throws a RangeError for targetChars = %s",
+    (targetChars) => {
+      expect(() => chunkMarkdown(text, { targetChars })).toThrow(RangeError);
+      expect(() => chunkMarkdown(text, { targetChars })).toThrow(/targetChars/);
+    },
+  );
+
+  it.each([-1, 100, 150, Number.NaN, 1.5])(
+    "throws a RangeError for overlap = %s with targetChars = 100",
+    (overlap) => {
+      expect(() => chunkMarkdown(text, { targetChars: 100, overlap })).toThrow(RangeError);
+      expect(() => chunkMarkdown(text, { targetChars: 100, overlap })).toThrow(/overlap/);
+    },
+  );
+
+  it("validates options even for empty text", () => {
+    expect(() => chunkMarkdown("", { targetChars: 0 })).toThrow(RangeError);
+  });
+
+  it("accepts overlap = targetChars - 1", () => {
+    const long = "word ".repeat(100);
+    const chunks = chunkMarkdown(long, { targetChars: 100, overlap: 99 });
+    expectWellFormedChunks(long, chunks);
+  });
+});
+
+describe("chunkMarkdown: end of text", () => {
+  it("keeps endPos in range with an unclosed fence", () => {
+    const text = `${"a".repeat(10)}\n\`\`\`\n${"code\n".repeat(20)}`;
+    for (const overlap of [0, 5]) {
+      const chunks = chunkMarkdown(text, { targetChars: 12, overlap });
+      expectWellFormedChunks(text, chunks);
+    }
+  });
+
+  it("keeps endPos in range when the closing fence is the last line without a newline", () => {
+    const text = `${"a".repeat(10)}\n\`\`\`\n${"code\n".repeat(20)}\`\`\``;
+    for (const overlap of [0, 5]) {
+      const chunks = chunkMarkdown(text, { targetChars: 12, overlap });
+      expectWellFormedChunks(text, chunks);
+    }
+  });
+});
+
+describe("chunkMarkdown: tilde fences", () => {
+  it("never cuts inside a ~~~ block", () => {
+    const code = "## not a heading\n\nx = 1\n".repeat(10);
+    const text = `# Intro\n\nSome text.\n\n~~~python\n${code}~~~\n\n# After\n\n${"tail ".repeat(20)}`;
+    const fenceOpen = text.indexOf("~~~python");
+    const fenceClose = text.lastIndexOf("~~~");
+    const chunks = chunkMarkdown(text, { targetChars: 40, overlap: 0 });
+    expectWellFormedChunks(text, chunks);
+    for (const c of chunks) {
+      if (c.endPos > fenceOpen && c.endPos <= fenceClose) {
+        expect.unreachable(
+          `chunk ${c.index} ends at ${c.endPos}, inside [${fenceOpen}, ${fenceClose}]`,
+        );
+      }
+    }
+  });
+
+  it("does not close a ```` block at an inner ``` line", () => {
+    const inner = "```js\nx\n```\n";
+    const text = `intro\n\`\`\`\`md\n${inner.repeat(5)}\`\`\`\`\n${"tail ".repeat(20)}`;
+    const fenceOpen = text.indexOf("````md");
+    const fenceClose = text.lastIndexOf("````");
+    const chunks = chunkMarkdown(text, { targetChars: 20, overlap: 0 });
+    expectWellFormedChunks(text, chunks);
+    for (const c of chunks) {
+      if (c.endPos > fenceOpen && c.endPos <= fenceClose) {
+        expect.unreachable(
+          `chunk ${c.index} ends at ${c.endPos}, inside [${fenceOpen}, ${fenceClose}]`,
+        );
+      }
+    }
+  });
+});
+
+describe("chunkMarkdown: fence break point", () => {
+  it("cuts right after a closing fence when it scores best", () => {
+    const text = `aaaa\n\`\`\`\ncode\n\`\`\`\n${"b".repeat(9)}\n${"c".repeat(100)}`;
+    const afterFence = text.indexOf("b");
+    const chunks = chunkMarkdown(text, { targetChars: 30, overlap: 0 });
+    expect(chunks[0]?.endPos).toBe(afterFence);
+  });
+});
+
+describe("chunkMarkdown: surrogate pairs", () => {
+  const text = "\u{1F600}".repeat(50); // 100 UTF-16 code units, no break points
+
+  it.each([
+    [7, 0],
+    [7, 3],
+    [1, 0],
+    [2, 1],
+    [5, 2],
+  ])("hard cuts with targetChars=%i overlap=%i do not split a pair", (targetChars, overlap) => {
+    const chunks = chunkMarkdown(text, { targetChars, overlap });
+    expectWellFormedChunks(text, chunks);
+    for (const c of chunks) {
+      expect(LONE_SURROGATE.test(c.content)).toBe(false);
+    }
+  });
+
+  it("does not cut inside a fence in CRLF text", () => {
+    const text =
+      "intro\r\n```js\r\nline one of code\r\nline two of code\r\n\r\nline three of code\r\n```\r\nafter text here\r\n";
+    const open = text.indexOf("```");
+    const close = text.lastIndexOf("```");
+    for (const chunk of chunkMarkdown(text, { targetChars: 40, overlap: 0 })) {
+      expect(chunk.endPos <= open || chunk.endPos > close).toBe(true);
+    }
+  });
+});
