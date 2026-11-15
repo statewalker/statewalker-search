@@ -83,3 +83,16 @@ describe("htmlToMarkdown", () => {
     expect(md).toContain("& < >");
   });
 });
+
+describe("htmlToMarkdown drops non-content elements", () => {
+  it("drops the content of <script>", () => {
+    expect(htmlToMarkdown("<p>hi</p><script>alert('x')</script>")).toBe("hi");
+  });
+
+  it("drops the content of <style>, <noscript> and <template>", () => {
+    const md = htmlToMarkdown(
+      "<style>p{color:red}</style><p>body</p><noscript>enable js</noscript><template><p>tpl</p></template>",
+    );
+    expect(md).toBe("body");
+  });
+});
