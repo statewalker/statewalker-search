@@ -267,4 +267,41 @@ describe("createCompositeIndex — open binding registry, name-keyed dispatch", 
     await expect(idx.close()).rejects.toThrow("hook failed");
     expect(a.index.close).toHaveBeenCalledOnce();
   });
+
+  it("close() closes every binding even when some throw, then reports all errors", async () => {
+    const a = binding<QueryA, HitA>("a", TYPE_A, []);
+    const b = binding<QueryB, HitB>("b", TYPE_B, []);
+    const c = binding<QueryB, HitB>("c", TYPE_B, []);
+    (a.index.close as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("a failed"));
+    (b.index.close as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("b failed"));
+    const idx = createCompositeIndex({ name: "x", bindings: [a, b, c] });
+    const error = await idx.close().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors.map((e: Error) => e.message)).toEqual([
+      "a failed",
+      "b failed",
+    ]);
+    expect(c.index.close).toHaveBeenCalledOnce();
+  });
+
+  it("close() rethrows a single failure as is", async () => {
+    const a = binding<QueryA, HitA>("a", TYPE_A, []);
+    const b = binding<QueryB, HitB>("b", TYPE_B, []);
+    (a.index.close as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("a failed"));
+    const idx = createCompositeIndex({ name: "x", bindings: [a, b] });
+    await expect(idx.close()).rejects.toThrow("a failed");
+    expect(b.index.close).toHaveBeenCalledOnce();
+  });
+
+  it("deleteIndex() deletes every binding and runs onDeleteIndex even when one throws", async () => {
+    const a = binding<QueryA, HitA>("a", TYPE_A, []);
+    const b = binding<QueryB, HitB>("b", TYPE_B, []);
+    (a.index.deleteIndex as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("a failed"));
+    const onDeleteIndex = vi.fn(async () => undefined);
+    const idx = createCompositeIndex({ name: "x", bindings: [a, b], onDeleteIndex });
+    await expect(idx.deleteIndex()).rejects.toThrow("a failed");
+    expect(b.index.deleteIndex).toHaveBeenCalledOnce();
+    expect(onDeleteIndex).toHaveBeenCalledOnce();
+    await expect(idx.flush()).rejects.toThrow(/closed/);
+  });
 });
