@@ -100,6 +100,12 @@ interface IndexManifest {
   subIndexes: Record<string, { type: string } & Record<string, unknown>>;
   /** Index-level metadata from `createIndex` (absent in manifests written before it was saved). */
   metadata?: Metadata;
+  /**
+   * `2` when the Index was created under the current naming scheme (`sqlTableNaming`): its tables
+   * are never looked up under the earlier scheme, whose names can be another Index's tables
+   * (`Notes` there folds to `notes`). Absent for Indexes created by earlier versions.
+   */
+  tableNaming?: 2;
 }
 
 const MANIFEST_TABLE = "__indexer_manifest";
@@ -108,7 +114,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
   const { db, dialect, onClose } = opts;
   const naming = opts.tableNaming ?? sqlTableNaming;
   // The earlier versions' scheme, to find the tables they created (none when writing under it).
-  const legacy = naming === legacySqlTableNaming ? undefined : legacySqlTableNaming;
+  const legacyNaming = naming === legacySqlTableNaming ? undefined : legacySqlTableNaming;
   const indexes = new Map<string, Index>();
   const manifest = new Map<string, IndexManifest>();
   const runExclusive = createSerialiser();
@@ -172,6 +178,8 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     name: string,
     subIndexes: Record<string, { type: string } & Record<string, unknown>>,
   ): Promise<IndexTables> {
+    // Only an Index created by an earlier version may have tables under the earlier scheme.
+    const legacy = manifest.get(name)?.tableNaming === 2 ? undefined : legacyNaming;
     const prefix = await resolvePrefix(
       naming.indexPrefix(name),
       legacy?.indexPrefix(name),
@@ -199,6 +207,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     name: string,
     subIndexes: Record<string, { type: string } & Record<string, unknown>>,
   ): Promise<void> {
+    const legacy = legacyNaming;
     if (!legacy) return;
     const ours = new Map<string, string>();
     const own = (table: string) => ours.set(identifierKey(table), table);
@@ -480,6 +489,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
 
         const entry: IndexManifest = {
           subIndexes: effectiveSpec,
+          ...(legacyNaming ? { tableNaming: 2 as const } : {}),
           ...(metadata !== undefined ? { metadata } : {}),
         };
         await db.query(`INSERT INTO ${MANIFEST_TABLE} (name, config) VALUES ($1, $2)`, [

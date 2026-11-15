@@ -283,6 +283,9 @@ runSqlTableNamesSuite("PGLite Indexer", {
   createIndexer: (db) => createPGLiteIndexer({ db }),
   createLegacyIndexer: (db) =>
     createSqlIndexer({ db, dialect: pgliteDialect, tableNaming: legacySqlTableNaming }),
+  dropTable: async (db, table) => {
+    await db.query(`DROP TABLE ${table}`);
+  },
   fullTextConfig: ftConfig,
   vectorConfig: vecConfig,
 });

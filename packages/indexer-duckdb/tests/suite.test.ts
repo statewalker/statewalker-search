@@ -368,6 +368,9 @@ runSqlTableNamesSuite("DuckDB Indexer", {
       dialect: duckdbDialect,
       tableNaming: legacySqlTableNaming,
     }),
+  dropTable: async (db, table) => {
+    await db.query(`DROP TABLE ${table}`);
+  },
   fullTextConfig: ftConfig,
   vectorConfig: vecConfig,
 });

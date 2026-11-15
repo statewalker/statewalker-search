@@ -24,6 +24,8 @@ export interface SqlTableNamesSuiteOptions<D> {
   createIndexer(db: D): Promise<Indexer>;
   /** An indexer that creates tables under the earlier versions' naming scheme, on `db`. */
   createLegacyIndexer(db: D): Promise<Indexer>;
+  /** Drop one table (to stand for a failed reinit or an interrupted delete). */
+  dropTable(db: D, table: string): Promise<void>;
   /** A full-text sub-index config. */
   fullTextConfig: SubIndexConfig;
   /** A vector sub-index config with `dimensionality: 3`. */
@@ -139,6 +141,24 @@ export function runSqlTableNamesSuite<D>(
       expect(await textSize(reopened, "q")).toBe(1);
       expect(await textHits(reopened, "q", "alpha")).toEqual(["/a"]);
       expect(await newVectorAccess("v").get(reopened).getSize()).toBe(1);
+    });
+
+    it("an index created by this version never falls back to an earlier version's table names", async () => {
+      const indexer = await open();
+      const lower = await indexer.createIndex({ name: "notes", subIndexes: { q: ft } });
+      await addText(lower, "q", "/l", "lower");
+      const upperIdx = await indexer.createIndex({ name: "Notes", subIndexes: { q: ft } });
+      await upperIdx.close();
+      // Notes' q table is missing, as after a reinit that failed past its drop.
+      await options.dropTable(db, "idx__78_otes_q_fts");
+
+      // The earlier name of Notes' q table folds to notes' table: it must not be used.
+      const upper = defined(await indexer.getIndex("Notes"));
+      expect(await textSize(upper, "q")).toBe(0);
+      await indexer.deleteIndex("Notes");
+      const lowerAgain = defined(await indexer.getIndex("notes"));
+      expect(await textSize(lowerAgain, "q")).toBe(1);
+      expect(await textHits(lowerAgain, "q", "lower")).toEqual(["/l"]);
     });
 
     it("opens an upper-case index written by an earlier version, and deletes it", async () => {
