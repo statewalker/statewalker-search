@@ -1,22 +1,14 @@
 import type { SqlBackedDialect, SqlFtsDialect, SqlVectorDialect } from "@statewalker/indexer-core";
-import { buildPathPrefixesSql } from "@statewalker/indexer-core";
+import {
+  buildSearchFilterSql,
+  embeddingToLiteral,
+  ISO_639_1_LANGUAGE_NAMES,
+  sqlDocsTableName,
+} from "@statewalker/indexer-core";
 
+// ISO-639-1 codes map to the Postgres text-search configuration of the same language name.
 const LANGUAGE_MAP: Record<string, string> = {
-  en: "english",
-  fr: "french",
-  de: "german",
-  es: "spanish",
-  it: "italian",
-  pt: "portuguese",
-  nl: "dutch",
-  ru: "russian",
-  sv: "swedish",
-  no: "norwegian",
-  da: "danish",
-  fi: "finnish",
-  hu: "hungarian",
-  ro: "romanian",
-  tr: "turkish",
+  ...ISO_639_1_LANGUAGE_NAMES,
   simple: "simple",
 };
 
@@ -32,16 +24,6 @@ function resolvePgLanguage(lang: string): string {
   throw new Error(
     `pglite FTS: unsupported language "${lang}" (must be an ISO-639-1 code or a Postgres text-search config name)`,
   );
-}
-
-/**
- * pgvector's `vector(dim)` column accepts either a JSON-array text literal (`"[1,2,3]"`) cast with
- * `::vector(dim)`, or a JS array bound by the driver. The text-literal path is currently used
- * because it works uniformly across the pglite vector extension versions available in the catalog;
- * swapping to native array binding is a follow-up when driver support is confirmed.
- */
-function embeddingToLiteral(embedding: Float32Array): string {
-  return `[${Array.from(embedding).join(",")}]`;
 }
 
 /**
@@ -70,16 +52,12 @@ export const pgliteFtsDialect: SqlFtsDialect = {
 
     const orTerms = validWords.join(" | ");
 
-    const allParams: unknown[] = [orTerms];
-    let pathClause = "";
-    if (paths && paths.length > 0) {
-      const cond = buildPathPrefixesSql("d.path", paths as string[], allParams.length + 1);
-      pathClause = ` AND ${cond.sql}`;
-      allParams.push(...cond.params);
-    }
-
-    const topKParam = `$${allParams.length + 1}`;
-    allParams.push(topK);
+    const {
+      pathCondition,
+      topKParam,
+      params: allParams,
+    } = buildSearchFilterSql("d.path", paths, topK, [orTerms]);
+    const pathClause = pathCondition ? ` AND ${pathCondition}` : "";
 
     const sql = `SELECT d.path, b.block_id, b.content, ts_rank_cd(b.content_tsv, to_tsquery('${pgLang}', $1)) AS score FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE b.content_tsv @@ to_tsquery('${pgLang}', $1)${pathClause} ORDER BY score DESC LIMIT ${topKParam}`;
 
@@ -112,6 +90,10 @@ export const pgliteVectorDialect: SqlVectorDialect = {
     ];
   },
 
+  // pgvector's `vector(dim)` column accepts either a JSON-array text literal (`"[1,2,3]"`) cast with
+  // `::vector(dim)`, or a JS array bound by the driver. The text-literal path is used because it
+  // works uniformly across the pglite vector extension versions available in the catalog; swapping
+  // to native array binding is a follow-up when driver support is confirmed.
   bindEmbedding: embeddingToLiteral,
   embeddingCastSuffix: (dim) => `::vector(${dim})`,
 
@@ -129,16 +111,12 @@ export const pgliteVectorDialect: SqlVectorDialect = {
     const vecLiteral = bindEmbedding(queryEmbedding);
     const dim = info.dimensionality;
 
-    const allParams: unknown[] = [vecLiteral];
-    let pathClause = "";
-    if (paths && paths.length > 0) {
-      const cond = buildPathPrefixesSql("d.path", paths as string[], allParams.length + 1);
-      pathClause = `WHERE ${cond.sql} `;
-      allParams.push(...cond.params);
-    }
-
-    const topKParam = `$${allParams.length + 1}`;
-    allParams.push(topK);
+    const {
+      pathCondition,
+      topKParam,
+      params: allParams,
+    } = buildSearchFilterSql("d.path", paths, topK, [vecLiteral]);
+    const pathClause = pathCondition ? `WHERE ${pathCondition} ` : "";
 
     const rows = await db.query<{ path: string; block_id: string; dist: number }>(
       `SELECT d.path, b.block_id, (b.embedding <=> $1${embeddingCastSuffix(dim)}) AS dist FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id ${pathClause}ORDER BY dist ASC LIMIT ${topKParam}`,
@@ -163,7 +141,7 @@ export const pgliteDialect: SqlBackedDialect = {
   extensionInit: ["CREATE EXTENSION IF NOT EXISTS vector"],
   docsTableDdl(prefix) {
     return [
-      `CREATE TABLE IF NOT EXISTS idx_${prefix}_docs (doc_id SERIAL PRIMARY KEY, path TEXT NOT NULL UNIQUE)`,
+      `CREATE TABLE IF NOT EXISTS ${sqlDocsTableName(prefix)} (doc_id SERIAL PRIMARY KEY, path TEXT NOT NULL UNIQUE)`,
     ];
   },
   unionAliasSuffix: " AS combined",

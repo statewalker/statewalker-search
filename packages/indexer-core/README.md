@@ -25,9 +25,11 @@ One entry point, `@statewalker/indexer-core`. Platform-neutral (no Node or DOM A
 | `reciprocalRankFusion(lists, topK, k = 60)` | RRF over `RankedList[]`. |
 | `matchesPrefix`, `buildPathPrefixSql`, `buildPathPrefixesSql`, `escapeLikePattern` | Path-prefix matching in memory and in SQL. |
 | `toBytes`, `singleChunk`, `readEntryBytes` | Build and read `PersistenceEntry` content. |
+| `sqlDocsTableName`, `sqlSubIndexPrefix`, `sqlFtsTableName`, `sqlVectorTableName`, `sqlVectorIndexName` | The `idx_*` table names of the SQL indexer (a storage format: they never change). |
+| `buildSearchFilterSql`, `embeddingToLiteral`, `ISO_639_1_LANGUAGE_NAMES` | Pieces SQL dialects share: path filter plus `topK` bind values, embedding array literal, ISO-639-1 code to language name. |
 | `compositeKey`, `sanitizePrefix`, `validateDimensionality`, `toAsyncIterable`, `createSerialiser` | Small helpers. |
 
-Types: `CompositeIndexOptions`, `PersistenceBackedIndexerOptions`, `SqlIndexerOptions`, `SqlBackedDialect`, `SqlFtsDialect`, `SqlFtsRetrieverOptions`, `SqlVectorDialect`, `SqlVectorRetrieverOptions`, `SqlDb`, `RankedList`, `PathPrefixSql`.
+Types: `CompositeIndexOptions`, `PersistenceBackedIndexerOptions`, `SqlIndexerOptions`, `SqlBackedDialect`, `SqlFtsDialect`, `SqlFtsRetrieverOptions`, `SqlVectorDialect`, `SqlVectorRetrieverOptions`, `SqlDb`, `RankedList`, `PathPrefixSql`, `SearchFilterSql`.
 
 ## Examples
 

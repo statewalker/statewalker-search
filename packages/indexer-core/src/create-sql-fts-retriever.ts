@@ -1,9 +1,4 @@
-import type {
-  BlockReference,
-  DocumentPath,
-  Metadata,
-  PathSelector,
-} from "@statewalker/indexer-api";
+import type { DocumentPath, Metadata, PathSelector } from "@statewalker/indexer-api";
 import type {
   FullTextBlock,
   FullTextIndex,
@@ -11,10 +6,10 @@ import type {
   FulltextQuery as FullTextSearchParams,
   FulltextResult as FullTextSearchResult,
 } from "@statewalker/indexer-fulltext";
-import { toAsyncIterable } from "./async.js";
 import { compositeKey } from "./composite-key.js";
 import type { SqlDb } from "./sql-db.js";
-import { buildPathPrefixSql } from "./sql-path-prefix.js";
+import { createSqlBlockTable } from "./sql-retriever-base.js";
+import { sqlFtsTableName } from "./sql-table-names.js";
 
 /**
  * Per-dialect SQL hooks for a full-text sub-index.
@@ -75,7 +70,7 @@ export function createSqlFtsRetriever(opts: SqlFtsRetrieverOptions): FullTextInd
   init(): Promise<void>;
 } {
   const { db, prefix, docsTable, info, dialect } = opts;
-  const tableName = `idx_${prefix}_fts`;
+  const tableName = sqlFtsTableName(prefix);
   let closed = false;
   // Start dirty: forces a rebuild on first search after `init()` or a reopen, covering both
   // brand-new tables and tables whose FTS index structure may be out of date.
@@ -91,16 +86,7 @@ export function createSqlFtsRetriever(opts: SqlFtsRetrieverOptions): FullTextInd
     dirty = false;
   };
 
-  const resolveDocId = async (path: DocumentPath): Promise<number> => {
-    await db.query(`INSERT INTO ${docsTable} (path) VALUES ($1) ON CONFLICT (path) DO NOTHING`, [
-      path,
-    ]);
-    const rows = await db.query<{ doc_id: number }>(
-      `SELECT doc_id FROM ${docsTable} WHERE path = $1`,
-      [path],
-    );
-    return rows[0]?.doc_id ?? -1;
-  };
+  const blockTable = createSqlBlockTable({ db, tableName, docsTable, ensureOpen });
 
   return {
     tableName,
@@ -153,7 +139,7 @@ export function createSqlFtsRetriever(opts: SqlFtsRetrieverOptions): FullTextInd
       // still get indexed by the next rebuild.
       if (dialect.rebuild && blocks.length > 0) dirty = true;
       for (const block of blocks) {
-        const docId = await resolveDocId(block.path);
+        const docId = await blockTable.resolveDocId(block.path);
         const metaJson = block.metadata ? JSON.stringify(block.metadata) : null;
         // Single-statement UPSERT: a failed re-ingest can't strand the old row
         // the way a DELETE+INSERT pair would when the INSERT half throws.
@@ -174,75 +160,22 @@ export function createSqlFtsRetriever(opts: SqlFtsRetrieverOptions): FullTextInd
     async deleteDocuments(
       pathSelectors: PathSelector[] | AsyncIterable<PathSelector>,
     ): Promise<void> {
-      ensureOpen();
-      for await (const sel of toAsyncIterable(pathSelectors)) {
-        if (sel.blockId !== undefined) {
-          await db.query(
-            `DELETE FROM ${tableName} WHERE doc_id IN (SELECT doc_id FROM ${docsTable} WHERE path = $1) AND block_id = $2`,
-            [sel.path, sel.blockId],
-          );
-        } else {
-          const cond = buildPathPrefixSql("path", sel.path, 1);
-          await db.query(
-            `DELETE FROM ${tableName} WHERE doc_id IN (SELECT doc_id FROM ${docsTable} WHERE ${cond.sql})`,
-            cond.params,
-          );
-        }
-      }
+      await blockTable.deleteDocuments(pathSelectors);
       if (dialect.rebuild) dirty = true;
     },
 
-    async getSize(pathPrefix?: DocumentPath): Promise<number> {
-      ensureOpen();
-      if (pathPrefix !== undefined) {
-        const cond = buildPathPrefixSql("d.path", pathPrefix, 1);
-        const rows = await db.query<{ cnt: number | bigint }>(
-          `SELECT COUNT(*) AS cnt FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE ${cond.sql}`,
-          cond.params,
-        );
-        return Number(rows[0]?.cnt ?? 0);
-      }
-      const rows = await db.query<{ cnt: number | bigint }>(
-        `SELECT COUNT(*) AS cnt FROM ${tableName}`,
-      );
-      return Number(rows[0]?.cnt ?? 0);
-    },
-
-    async *getDocumentPaths(pathPrefix?: DocumentPath): AsyncGenerator<DocumentPath> {
-      ensureOpen();
-      const cond = pathPrefix !== undefined ? buildPathPrefixSql("d.path", pathPrefix, 1) : null;
-      const sql = cond
-        ? `SELECT DISTINCT d.path FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE ${cond.sql}`
-        : `SELECT DISTINCT d.path FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id`;
-      const rows = await db.query<{ path: string }>(sql, cond?.params ?? []);
-      for (const row of rows) yield row.path as DocumentPath;
-    },
-
-    async *getDocumentBlocksRefs(pathPrefix?: DocumentPath): AsyncGenerator<BlockReference> {
-      ensureOpen();
-      const cond = pathPrefix !== undefined ? buildPathPrefixSql("d.path", pathPrefix, 1) : null;
-      const sql = cond
-        ? `SELECT d.path, b.block_id FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE ${cond.sql}`
-        : `SELECT d.path, b.block_id FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id`;
-      const rows = await db.query<{ path: string; block_id: string }>(sql, cond?.params ?? []);
-      for (const row of rows) {
-        yield { path: row.path as DocumentPath, blockId: row.block_id };
-      }
-    },
+    getSize: blockTable.getSize,
+    getDocumentPaths: blockTable.getDocumentPaths,
+    getDocumentBlocksRefs: blockTable.getDocumentBlocksRefs,
 
     async *getDocumentsBlocks(pathPrefix?: DocumentPath): AsyncGenerator<FullTextBlock> {
       ensureOpen();
-      const cond = pathPrefix !== undefined ? buildPathPrefixSql("d.path", pathPrefix, 1) : null;
-      const sql = cond
-        ? `SELECT d.path, b.block_id, b.content, b.metadata FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE ${cond.sql}`
-        : `SELECT d.path, b.block_id, b.content, b.metadata FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id`;
-      const params = cond?.params ?? [];
-      const rows = await db.query<{
+      const rows = await blockTable.selectBlocks<{
         path: string;
         block_id: string;
         content: string;
         metadata: string | null;
-      }>(sql, params);
+      }>("d.path, b.block_id, b.content, b.metadata", pathPrefix);
       for (const row of rows) {
         yield {
           path: row.path as DocumentPath,

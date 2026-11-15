@@ -6,7 +6,12 @@ import type {
   SqlFtsDialect,
   SqlVectorDialect,
 } from "@statewalker/indexer-core";
-import { buildPathPrefixesSql } from "@statewalker/indexer-core";
+import {
+  buildSearchFilterSql,
+  embeddingToLiteral,
+  ISO_639_1_LANGUAGE_NAMES,
+  sqlDocsTableName,
+} from "@statewalker/indexer-core";
 
 /** Adapt `@statewalker/db-api`'s `Db` to `@statewalker/indexer-core`'s minimal `SqlDb`. */
 export function wrapDbAsSqlDb(db: Db): SqlDb {
@@ -17,37 +22,11 @@ export function wrapDbAsSqlDb(db: Db): SqlDb {
 }
 
 /**
- * DuckDB bindings for `FLOAT[dim]` columns go through the `@statewalker/db-duckdb-node` driver, which
- * does not currently wrap JS arrays as `DuckDBArrayValue`. We format the embedding as a SQL array
- * literal (locale-independent via `Number.prototype.toString`) and rely on the `$n::FLOAT[dim]` cast
- * to parse it back. Switching to native array binding is a follow-up when the driver supports it.
+ * DuckDB FTS stemmer map. DuckDB's `fts` extension accepts a stemmer name per Snowball; the
+ * ISO-639-1 language codes used at `FullTextIndexInfo.language` map to the stemmer of the same
+ * language name. Unknown codes fall through to 'porter' as a generic fallback.
  */
-function embeddingToLiteral(embedding: Float32Array): string {
-  return `[${Array.from(embedding).join(",")}]`;
-}
-
-/**
- * DuckDB FTS stemmer map. DuckDB's `fts` extension accepts a stemmer name per Snowball; we map
- * ISO-639-1 language codes used at `FullTextIndexInfo.language` to the corresponding stemmer.
- * Unknown codes fall through to 'porter' as a generic fallback.
- */
-const DUCKDB_STEMMER_MAP: Record<string, string> = {
-  en: "english",
-  fr: "french",
-  de: "german",
-  es: "spanish",
-  it: "italian",
-  pt: "portuguese",
-  nl: "dutch",
-  ru: "russian",
-  sv: "swedish",
-  no: "norwegian",
-  da: "danish",
-  fi: "finnish",
-  hu: "hungarian",
-  ro: "romanian",
-  tr: "turkish",
-};
+const DUCKDB_STEMMER_MAP: Readonly<Record<string, string>> = ISO_639_1_LANGUAGE_NAMES;
 
 function resolveDuckDbStemmer(lang: string): string {
   return DUCKDB_STEMMER_MAP[lang] ?? "porter";
@@ -93,17 +72,12 @@ export const duckdbFtsDialect: SqlFtsDialect = {
     if (trimmed.length === 0) return [];
 
     const schema = ftsMainSchema(tableName);
-    const allParams: unknown[] = [trimmed];
-
-    let pathClause = "";
-    if (paths && paths.length > 0) {
-      const cond = buildPathPrefixesSql("d.path", paths as string[], allParams.length + 1);
-      pathClause = ` AND ${cond.sql}`;
-      allParams.push(...cond.params);
-    }
-
-    const topKParam = `$${allParams.length + 1}`;
-    allParams.push(topK);
+    const {
+      pathCondition,
+      topKParam,
+      params: allParams,
+    } = buildSearchFilterSql("d.path", paths, topK, [trimmed]);
+    const pathClause = pathCondition ? ` AND ${pathCondition}` : "";
 
     const sql = `SELECT d.path, b.block_id, b.content, ${schema}.match_bm25(b.fts_id, $1) AS score FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE ${schema}.match_bm25(b.fts_id, $1) IS NOT NULL${pathClause} ORDER BY score DESC LIMIT ${topKParam}`;
 
@@ -141,6 +115,9 @@ export const duckdbVectorDialect: SqlVectorDialect = {
     ];
   },
 
+  // The `@statewalker/db-duckdb-node` driver does not wrap JS arrays as `DuckDBArrayValue`, so the
+  // embedding is bound as a SQL array literal and parsed back by the `$n::FLOAT[dim]` cast.
+  // Switching to native array binding is a follow-up when the driver supports it.
   bindEmbedding: embeddingToLiteral,
   embeddingCastSuffix: (dim) => `::FLOAT[${dim}]`,
 
@@ -158,16 +135,12 @@ export const duckdbVectorDialect: SqlVectorDialect = {
     const vecLiteral = bindEmbedding(queryEmbedding);
     const dim = info.dimensionality;
 
-    const allParams: unknown[] = [vecLiteral];
-    let pathClause = "";
-    if (paths && paths.length > 0) {
-      const cond = buildPathPrefixesSql("d.path", paths as string[], allParams.length + 1);
-      pathClause = `WHERE ${cond.sql} `;
-      allParams.push(...cond.params);
-    }
-
-    const topKParam = `$${allParams.length + 1}`;
-    allParams.push(topK);
+    const {
+      pathCondition,
+      topKParam,
+      params: allParams,
+    } = buildSearchFilterSql("d.path", paths, topK, [vecLiteral]);
+    const pathClause = pathCondition ? `WHERE ${pathCondition} ` : "";
 
     const rows = await db.query<{
       path: string;
@@ -198,13 +171,14 @@ export const duckdbDialect: SqlBackedDialect = {
     "SET hnsw_enable_experimental_persistence = true;",
   ],
   docsTableDdl(prefix) {
+    const docsTable = sqlDocsTableName(prefix);
     return [
-      `CREATE SEQUENCE IF NOT EXISTS idx_${prefix}_docs_seq START 1`,
-      `CREATE TABLE IF NOT EXISTS idx_${prefix}_docs (doc_id INTEGER PRIMARY KEY DEFAULT(nextval('idx_${prefix}_docs_seq')), path TEXT NOT NULL UNIQUE)`,
+      `CREATE SEQUENCE IF NOT EXISTS ${docsTable}_seq START 1`,
+      `CREATE TABLE IF NOT EXISTS ${docsTable} (doc_id INTEGER PRIMARY KEY DEFAULT(nextval('${docsTable}_seq')), path TEXT NOT NULL UNIQUE)`,
     ];
   },
   extraCleanup(prefix) {
-    return [`DROP SEQUENCE IF EXISTS idx_${prefix}_docs_seq`];
+    return [`DROP SEQUENCE IF EXISTS ${sqlDocsTableName(prefix)}_seq`];
   },
   unionAliasSuffix: "",
   fts: duckdbFtsDialect,

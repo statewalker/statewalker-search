@@ -4,7 +4,7 @@ import type {
   SearchRequest,
   SearchResult,
 } from "@statewalker/indexer-api";
-import { getSubQuery, getSubResult, setSubQuery } from "@statewalker/indexer-api";
+import { newSubIndexAccess } from "@statewalker/indexer-api";
 import { getVectorConfig, setVectorConfig } from "./config.js";
 import type { VectorConfig, VectorIndex, VectorQuery, VectorResult } from "./types.js";
 import { VECTOR_TYPE } from "./types.js";
@@ -28,38 +28,9 @@ export interface VectorAccess {
 
 /** Construct a name-bound {@link VectorAccess} handle. */
 export function newVectorAccess(name: string): VectorAccess {
-  return {
-    name,
-    get(index: Index): VectorIndex {
-      const binding = index.getBinding(name);
-      if (!binding) {
-        throw new Error(`No sub-index named "${name}" is registered on index "${index.name}"`);
-      }
-      if (binding.type !== VECTOR_TYPE) {
-        throw new Error(
-          `Sub-index "${name}" on index "${index.name}" is of type "${binding.type}", not "${VECTOR_TYPE}"`,
-        );
-      }
-      return binding.index as VectorIndex;
-    },
-    tryGet(index: Index): VectorIndex | undefined {
-      const binding = index.getBinding(name);
-      return binding?.type === VECTOR_TYPE ? (binding.index as VectorIndex) : undefined;
-    },
-    setConfig(params: CreateIndexParams, config: VectorConfig): void {
-      setVectorConfig(params, name, config);
-    },
-    getConfig(params: CreateIndexParams): VectorConfig | undefined {
-      return getVectorConfig(params, name);
-    },
-    setQuery(request: SearchRequest, query: VectorQuery): void {
-      setSubQuery<VectorQuery>(request, name, query);
-    },
-    getQuery(request: SearchRequest): VectorQuery | undefined {
-      return getSubQuery<VectorQuery>(request, name);
-    },
-    getResult(entry: SearchResult): VectorResult | undefined {
-      return getSubResult<VectorResult>(entry, name);
-    },
-  };
+  return newSubIndexAccess<VectorIndex, VectorConfig, VectorQuery, VectorResult>(name, {
+    type: VECTOR_TYPE,
+    setConfig: setVectorConfig,
+    getConfig: getVectorConfig,
+  });
 }

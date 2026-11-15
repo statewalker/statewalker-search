@@ -1,4 +1,4 @@
-import type { BlockReference, DocumentPath, PathSelector } from "@statewalker/indexer-api";
+import type { DocumentPath } from "@statewalker/indexer-api";
 import type {
   VectorBlock as EmbeddingBlock,
   VectorIndex as EmbeddingIndex,
@@ -6,10 +6,10 @@ import type {
   VectorQuery as EmbeddingSearchParams,
   VectorResult as EmbeddingSearchResult,
 } from "@statewalker/indexer-vector";
-import { toAsyncIterable } from "./async.js";
 import { compositeKey } from "./composite-key.js";
 import type { SqlDb } from "./sql-db.js";
-import { buildPathPrefixSql } from "./sql-path-prefix.js";
+import { createSqlBlockTable } from "./sql-retriever-base.js";
+import { sqlVectorIndexName, sqlVectorTableName } from "./sql-table-names.js";
 import { validateDimensionality } from "./validate-dimensionality.js";
 
 /**
@@ -72,8 +72,8 @@ export function createSqlVectorRetriever(opts: SqlVectorRetrieverOptions): Embed
   init(): Promise<void>;
 } {
   const { db, prefix, docsTable, info, dialect } = opts;
-  const tableName = `idx_${prefix}_vec`;
-  const indexName = `idx_${prefix}_vec_hnsw`;
+  const tableName = sqlVectorTableName(prefix);
+  const indexName = sqlVectorIndexName(prefix);
   const dim = info.dimensionality;
   let closed = false;
 
@@ -81,16 +81,7 @@ export function createSqlVectorRetriever(opts: SqlVectorRetrieverOptions): Embed
     if (closed) throw new Error("EmbeddingIndex is closed");
   };
 
-  const resolveDocId = async (path: DocumentPath): Promise<number> => {
-    await db.query(`INSERT INTO ${docsTable} (path) VALUES ($1) ON CONFLICT (path) DO NOTHING`, [
-      path,
-    ]);
-    const rows = await db.query<{ doc_id: number }>(
-      `SELECT doc_id FROM ${docsTable} WHERE path = $1`,
-      [path],
-    );
-    return rows[0]?.doc_id ?? -1;
-  };
+  const blockTable = createSqlBlockTable({ db, tableName, docsTable, ensureOpen });
 
   return {
     tableName,
@@ -149,7 +140,7 @@ export function createSqlVectorRetriever(opts: SqlVectorRetrieverOptions): Embed
       // Validate the whole batch before writing, so a bad block leaves nothing half-written.
       for (const block of blocks) validateDimensionality(info, block.embedding);
       for (const block of blocks) {
-        const docId = await resolveDocId(block.path);
+        const docId = await blockTable.resolveDocId(block.path);
         const bound = dialect.bindEmbedding(block.embedding);
         const cast = dialect.embeddingCastSuffix(dim);
 
@@ -169,76 +160,18 @@ export function createSqlVectorRetriever(opts: SqlVectorRetrieverOptions): Embed
       for await (const batch of blocks) await this.addDocument(batch);
     },
 
-    async deleteDocuments(
-      pathSelectors: PathSelector[] | AsyncIterable<PathSelector>,
-    ): Promise<void> {
-      ensureOpen();
-      for await (const sel of toAsyncIterable(pathSelectors)) {
-        if (sel.blockId !== undefined) {
-          await db.query(
-            `DELETE FROM ${tableName} WHERE doc_id IN (SELECT doc_id FROM ${docsTable} WHERE path = $1) AND block_id = $2`,
-            [sel.path, sel.blockId],
-          );
-        } else {
-          const cond = buildPathPrefixSql("path", sel.path, 1);
-          await db.query(
-            `DELETE FROM ${tableName} WHERE doc_id IN (SELECT doc_id FROM ${docsTable} WHERE ${cond.sql})`,
-            cond.params,
-          );
-        }
-      }
-    },
-
-    async getSize(pathPrefix?: DocumentPath): Promise<number> {
-      ensureOpen();
-      if (pathPrefix !== undefined) {
-        const cond = buildPathPrefixSql("d.path", pathPrefix, 1);
-        const rows = await db.query<{ cnt: number | bigint }>(
-          `SELECT COUNT(*) AS cnt FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE ${cond.sql}`,
-          cond.params,
-        );
-        return Number(rows[0]?.cnt ?? 0);
-      }
-      const rows = await db.query<{ cnt: number | bigint }>(
-        `SELECT COUNT(*) AS cnt FROM ${tableName}`,
-      );
-      return Number(rows[0]?.cnt ?? 0);
-    },
-
-    async *getDocumentPaths(pathPrefix?: DocumentPath): AsyncGenerator<DocumentPath> {
-      ensureOpen();
-      const cond = pathPrefix !== undefined ? buildPathPrefixSql("d.path", pathPrefix, 1) : null;
-      const sql = cond
-        ? `SELECT DISTINCT d.path FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE ${cond.sql}`
-        : `SELECT DISTINCT d.path FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id`;
-      const rows = await db.query<{ path: string }>(sql, cond?.params ?? []);
-      for (const row of rows) yield row.path as DocumentPath;
-    },
-
-    async *getDocumentBlocksRefs(pathPrefix?: DocumentPath): AsyncGenerator<BlockReference> {
-      ensureOpen();
-      const cond = pathPrefix !== undefined ? buildPathPrefixSql("d.path", pathPrefix, 1) : null;
-      const sql = cond
-        ? `SELECT d.path, b.block_id FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE ${cond.sql}`
-        : `SELECT d.path, b.block_id FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id`;
-      const rows = await db.query<{ path: string; block_id: string }>(sql, cond?.params ?? []);
-      for (const row of rows) {
-        yield { path: row.path as DocumentPath, blockId: row.block_id };
-      }
-    },
+    deleteDocuments: blockTable.deleteDocuments,
+    getSize: blockTable.getSize,
+    getDocumentPaths: blockTable.getDocumentPaths,
+    getDocumentBlocksRefs: blockTable.getDocumentBlocksRefs,
 
     async *getDocumentsBlocks(pathPrefix?: DocumentPath): AsyncGenerator<EmbeddingBlock> {
       ensureOpen();
-      const cond = pathPrefix !== undefined ? buildPathPrefixSql("d.path", pathPrefix, 1) : null;
-      const sql = cond
-        ? `SELECT d.path, b.block_id, b.embedding FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id WHERE ${cond.sql}`
-        : `SELECT d.path, b.block_id, b.embedding FROM ${tableName} b JOIN ${docsTable} d ON d.doc_id = b.doc_id`;
-      const params = cond?.params ?? [];
-      const rows = await db.query<{
+      const rows = await blockTable.selectBlocks<{
         path: string;
         block_id: string;
         embedding: unknown;
-      }>(sql, params);
+      }>("d.path, b.block_id, b.embedding", pathPrefix);
       for (const row of rows) {
         yield {
           path: row.path as DocumentPath,

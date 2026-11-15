@@ -183,9 +183,9 @@ export function runLifecycleConformanceSuite(name: string, options: LifecycleSui
       expect(await indexer.getIndexNames()).toEqual([{ name: "a", metadata }]);
     });
 
-    it("index metadata survives a save and reload", async () => {
+    it("index metadata survives a save and reload", async (ctx) => {
       const createWithPersistence = factory.createWithPersistence;
-      if (!createWithPersistence) return; // the backend stores everything in its database
+      if (!createWithPersistence) return ctx.skip("the backend has no createWithPersistence");
 
       const persistence = new MemoryPersistence();
       const first = await createWithPersistence(persistence);
