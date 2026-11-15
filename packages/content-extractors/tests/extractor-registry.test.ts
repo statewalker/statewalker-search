@@ -41,6 +41,14 @@ describe("ExtractorRegistry", () => {
       const result = registry.getByPath("/some/path/readme.md");
       expect(result).toBe(dummyExtractor);
     });
+
+    it("matches patterns case-insensitively, like file names", () => {
+      const registry = new ExtractorRegistry();
+      registry.registerByPattern("*.PDF", dummyExtractor);
+
+      expect(registry.getByPath("report.pdf")).toBe(dummyExtractor);
+      expect(registry.getByPath("REPORT.PDF")).toBe(dummyExtractor);
+    });
   });
 
   describe("getByMime", () => {

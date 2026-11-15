@@ -13,10 +13,11 @@ export class ExtractorRegistry {
 
   /**
    * Associates a suffix pattern with an extractor so the registry can
-   * route files to the right handler based on their filename.
+   * route files to the right handler based on their filename. Patterns are
+   * case-insensitive, like the file names they are matched against.
    */
   registerByPattern(pattern: string, extractor: ContentExtractor): void {
-    this.patternMap.set(pattern, extractor);
+    this.patternMap.set(pattern.toLowerCase(), extractor);
   }
 
   /**

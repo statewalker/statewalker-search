@@ -1,5 +1,6 @@
 import { collectText } from "../collect-bytes.js";
 import { htmlToMarkdown } from "../html-to-markdown.js";
+import { DEFAULT_MAX_BYTES, type ExtractorLimits } from "../limits.js";
 import type { ContentExtractor } from "../types.js";
 
 /**
@@ -7,7 +8,10 @@ import type { ContentExtractor } from "../types.js";
  * text format. Delegates to `htmlToMarkdown` for the actual conversion,
  * keeping this extractor focused on the bytes-to-string bridging step.
  */
-export const htmlExtractor: ContentExtractor = async (content) => {
-  const html = await collectText(content);
-  return htmlToMarkdown(html);
-};
+export function createHtmlExtractor(limits: ExtractorLimits = {}): ContentExtractor {
+  const { maxBytes = DEFAULT_MAX_BYTES } = limits;
+  return async (content) => htmlToMarkdown(await collectText(content, { maxBytes }));
+}
+
+/** HTML extractor with the default limits. */
+export const htmlExtractor: ContentExtractor = createHtmlExtractor();
