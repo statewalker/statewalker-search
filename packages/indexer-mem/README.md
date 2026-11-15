@@ -4,9 +4,11 @@
 
 An in-memory vector sub-index, `MemVectorIndex`, and `memVectorProvider`, the `VectorProvider` that creates it. Search is a brute-force cosine scan over all stored embeddings. The index can save itself as one Apache Arrow IPC stream.
 
+It also holds the in-memory block store behind the full-text indexes. `MemBlockStore` owns the blocks keyed by path + blockId, path-prefix selection, enumeration, multi-query score fusion (scores summed across queries), dirty tracking and the persistence framing (`{ version: 3, ...engineState, blocks }`). `MemFullTextIndex` is the `FullTextIndex` over that store. A full-text engine plugs in as a `MemBlockEngine` adapter that supplies only `add`, `remove`, `search` and `exportState`.
+
 ## Why it exists
 
-The in-memory indexers (`@statewalker/indexer-mem-flexsearch`, `@statewalker/indexer-mem-minisearch`) differ only in their full-text engine. Both use this package for the vector side, so the vector code and its file format exist once.
+The in-memory indexers (`@statewalker/indexer-mem-flexsearch`, `@statewalker/indexer-mem-minisearch`) differ only in their full-text engine. Both use this package for the vector side and for the full-text block store, so the vector code, the block and path rules and the file formats exist once, and another engine costs only an adapter.
 
 ## How to use
 
@@ -14,7 +16,7 @@ The in-memory indexers (`@statewalker/indexer-mem-flexsearch`, `@statewalker/ind
 pnpm add @statewalker/indexer-mem
 ```
 
-One entry point, `@statewalker/indexer-mem`: `MemVectorIndex`, `memVectorProvider`. Runs anywhere (browser, Node, workers).
+One entry point, `@statewalker/indexer-mem`: `MemVectorIndex`, `memVectorProvider`, `MemBlockStore`, `MemBlockEngine`, `MemFullTextIndex`. Runs anywhere (browser, Node, workers).
 
 Most applications use `createFlexSearchIndexer` or `createMiniSearchIndexer`, which already include `memVectorProvider`. Use this package directly when you build your own indexer from providers.
 

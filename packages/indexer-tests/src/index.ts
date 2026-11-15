@@ -19,6 +19,11 @@ export {
 export type { LifecycleSuiteOptions } from "./conformance/lifecycle.suite.js";
 export { runLifecycleConformanceSuite } from "./conformance/lifecycle.suite.js";
 export type {
+  MemFullTextStateIndex,
+  MemFullTextStateSuiteOptions,
+} from "./conformance/mem-fulltext-state.suite.js";
+export { runMemFullTextStateSuite } from "./conformance/mem-fulltext-state.suite.js";
+export type {
   ConfigFactory,
   FullTextModalityHooks,
   MultiInstanceSuiteOptions,

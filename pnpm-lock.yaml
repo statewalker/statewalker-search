@@ -279,6 +279,9 @@ importers:
       '@statewalker/indexer-core':
         specifier: workspace:^
         version: link:../indexer-core
+      '@statewalker/indexer-fulltext':
+        specifier: workspace:^
+        version: link:../indexer-fulltext
       '@statewalker/indexer-vector':
         specifier: workspace:^
         version: link:../indexer-vector

@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": false,
   "type": "module",
-  "description": "In-memory vector sub-index (MemVectorIndex, brute-force cosine, Arrow persistence) and its VectorProvider.",
+  "description": "In-memory sub-indexes: the block store and full-text base behind the FlexSearch and MiniSearch indexes, and the vector sub-index (MemVectorIndex, brute-force cosine, Arrow persistence) with its VectorProvider.",
   "bugs": {
     "url": "https://github.com/statewalker/statewalker-search/issues"
   },
@@ -43,6 +43,7 @@
   "dependencies": {
     "@statewalker/indexer-api": "workspace:^",
     "@statewalker/indexer-core": "workspace:^",
+    "@statewalker/indexer-fulltext": "workspace:^",
     "@statewalker/indexer-vector": "workspace:^",
     "@uwdata/flechette": "catalog:"
   },
