@@ -4,7 +4,7 @@ import type {
   SearchRequest,
   SearchResult,
 } from "@statewalker/indexer-api";
-import { getSubQuery, getSubResult, setSubQuery } from "@statewalker/indexer-api";
+import { newSubIndexAccess } from "@statewalker/indexer-api";
 import { getFullTextConfig, setFullTextConfig } from "./config.js";
 import type { FullTextConfig, FullTextIndex, FulltextQuery, FulltextResult } from "./types.js";
 import { FULL_TEXT_TYPE } from "./types.js";
@@ -44,38 +44,9 @@ export interface FullTextAccess {
 
 /** Construct a name-bound {@link FullTextAccess} handle. */
 export function newFullTextAccess(name: string): FullTextAccess {
-  return {
-    name,
-    get(index: Index): FullTextIndex {
-      const binding = index.getBinding(name);
-      if (!binding) {
-        throw new Error(`No sub-index named "${name}" is registered on index "${index.name}"`);
-      }
-      if (binding.type !== FULL_TEXT_TYPE) {
-        throw new Error(
-          `Sub-index "${name}" on index "${index.name}" is of type "${binding.type}", not "${FULL_TEXT_TYPE}"`,
-        );
-      }
-      return binding.index as FullTextIndex;
-    },
-    tryGet(index: Index): FullTextIndex | undefined {
-      const binding = index.getBinding(name);
-      return binding?.type === FULL_TEXT_TYPE ? (binding.index as FullTextIndex) : undefined;
-    },
-    setConfig(params: CreateIndexParams, config: FullTextConfig): void {
-      setFullTextConfig(params, name, config);
-    },
-    getConfig(params: CreateIndexParams): FullTextConfig | undefined {
-      return getFullTextConfig(params, name);
-    },
-    setQuery(request: SearchRequest, query: FulltextQuery): void {
-      setSubQuery<FulltextQuery>(request, name, query);
-    },
-    getQuery(request: SearchRequest): FulltextQuery | undefined {
-      return getSubQuery<FulltextQuery>(request, name);
-    },
-    getResult(entry: SearchResult): FulltextResult | undefined {
-      return getSubResult<FulltextResult>(entry, name);
-    },
-  };
+  return newSubIndexAccess<FullTextIndex, FullTextConfig, FulltextQuery, FulltextResult>(name, {
+    type: FULL_TEXT_TYPE,
+    setConfig: setFullTextConfig,
+    getConfig: getFullTextConfig,
+  });
 }

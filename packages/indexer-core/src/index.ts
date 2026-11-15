@@ -35,4 +35,17 @@ export {
   escapeLikePattern,
   type PathPrefixSql,
 } from "./sql-path-prefix.js";
+export {
+  buildSearchFilterSql,
+  embeddingToLiteral,
+  ISO_639_1_LANGUAGE_NAMES,
+  type SearchFilterSql,
+} from "./sql-search.js";
+export {
+  sqlDocsTableName,
+  sqlFtsTableName,
+  sqlSubIndexPrefix,
+  sqlVectorIndexName,
+  sqlVectorTableName,
+} from "./sql-table-names.js";
 export { validateDimensionality } from "./validate-dimensionality.js";

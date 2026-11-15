@@ -1,3 +1,9 @@
+// Runtime: generic name-bound access handle, wrapped by each modality package.
+export {
+  newSubIndexAccess,
+  type SubIndexAccess,
+  type SubIndexAccessOptions,
+} from "./contract/access.js";
 // Runtime: name-parametric helpers for sub-queries and sub-results.
 export { getSubQuery, getSubResult, setSubQuery, setSubResult } from "./contract/helpers.js";
 // Kernel contract types.

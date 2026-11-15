@@ -14,7 +14,7 @@ Application code should not depend on a storage engine. With this contract the s
 pnpm add @statewalker/indexer-api
 ```
 
-One entry point, `@statewalker/indexer-api`: types and the helpers `getSubQuery`, `setSubQuery`, `getSubResult`, `setSubResult`, `isPersistable`. Platform-neutral.
+One entry point, `@statewalker/indexer-api`: types and the helpers `getSubQuery`, `setSubQuery`, `getSubResult`, `setSubResult`, `isPersistable`, and `newSubIndexAccess(name, { type, setConfig, getConfig })`, the generic name-bound access handle that the modality packages wrap (`newFullTextAccess` and the others). Platform-neutral.
 
 The model:
 

@@ -38,6 +38,13 @@ import { createSqlVectorRetriever } from "./create-sql-vector-retriever.js";
 import { createSerialiser } from "./run-exclusive.js";
 import { sanitizePrefix } from "./sanitize-prefix.js";
 import type { SqlDb } from "./sql-db.js";
+import {
+  sqlDocsTableName,
+  sqlFtsTableName,
+  sqlSubIndexPrefix,
+  sqlVectorIndexName,
+  sqlVectorTableName,
+} from "./sql-table-names.js";
 
 /** Per-backend dialect aggregating the pieces that genuinely differ between SQL backends. */
 export interface SqlBackedDialect {
@@ -76,11 +83,6 @@ interface IndexManifest {
 }
 
 const MANIFEST_TABLE = "__indexer_manifest";
-
-/** Build a stable per-sub-index prefix string suitable for SQL identifiers. */
-function subPrefix(indexPrefix: string, subName: string): string {
-  return `${indexPrefix}_${sanitizePrefix(subName)}`;
-}
 
 export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer> {
   const { db, dialect, onClose } = opts;
@@ -125,7 +127,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
 
   async function createDocsTable(prefix: string): Promise<string> {
     for (const stmt of dialect.docsTableDdl(prefix)) await db.exec(stmt);
-    return `idx_${prefix}_docs`;
+    return sqlDocsTableName(prefix);
   }
 
   async function dropSubIndexTables(
@@ -133,13 +135,14 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     subName: string,
     spec: { type: string },
   ): Promise<void> {
-    const sp = subPrefix(indexPrefix, subName);
+    const sp = sqlSubIndexPrefix(indexPrefix, subName);
     if (spec.type === FULL_TEXT_TYPE) {
-      if (dialect.fts.drop) await dialect.fts.drop({ db, tableName: `idx_${sp}_fts` });
-      await db.exec(`DROP TABLE IF EXISTS idx_${sp}_fts`);
+      const tableName = sqlFtsTableName(sp);
+      if (dialect.fts.drop) await dialect.fts.drop({ db, tableName });
+      await db.exec(`DROP TABLE IF EXISTS ${tableName}`);
     } else if (spec.type === VECTOR_TYPE) {
-      await db.exec(`DROP INDEX IF EXISTS idx_${sp}_vec_hnsw`);
-      await db.exec(`DROP TABLE IF EXISTS idx_${sp}_vec`);
+      await db.exec(`DROP INDEX IF EXISTS ${sqlVectorIndexName(sp)}`);
+      await db.exec(`DROP TABLE IF EXISTS ${sqlVectorTableName(sp)}`);
     }
   }
 
@@ -151,7 +154,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     for (const [subName, spec] of Object.entries(subEntries)) {
       await dropSubIndexTables(indexPrefix, subName, spec);
     }
-    await db.exec(`DROP TABLE IF EXISTS idx_${indexPrefix}_docs`);
+    await db.exec(`DROP TABLE IF EXISTS ${sqlDocsTableName(indexPrefix)}`);
     if (dialect.extraCleanup) {
       for (const stmt of dialect.extraCleanup(indexPrefix)) await db.exec(stmt);
     }
@@ -220,7 +223,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
       // Reinit: drop the existing tables for this sub-index; they are recreated below.
       if (reinit) await dropSubIndexTables(indexPrefix, subName, savedSpec);
 
-      const sp = subPrefix(indexPrefix, subName);
+      const sp = sqlSubIndexPrefix(indexPrefix, subName);
       effectiveSpec[subName] = { type: effType, ...effConfig };
 
       if (effType === FULL_TEXT_TYPE) {
@@ -302,8 +305,8 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
         // more. Enumerate the in-memory bindings' table names; if zero
         // references remain across all of them, drop the doc row.
         const subTables = bindings.map((b) => {
-          const sp = subPrefix(indexPrefix, b.name);
-          return b.type === FULL_TEXT_TYPE ? `idx_${sp}_fts` : `idx_${sp}_vec`;
+          const sp = sqlSubIndexPrefix(indexPrefix, b.name);
+          return b.type === FULL_TEXT_TYPE ? sqlFtsTableName(sp) : sqlVectorTableName(sp);
         });
         if (subTables.length === 0) {
           await db.exec(`DELETE FROM ${docsTable}`);
