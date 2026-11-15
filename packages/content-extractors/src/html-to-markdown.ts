@@ -6,7 +6,9 @@ import TurndownService from "turndown";
  * Normalizes HTML into markdown so downstream consumers get a uniform
  * text format regardless of whether the source was HTML, DOCX (via
  * mammoth's HTML output), or any other HTML-producing extractor.
- * Uses Turndown with GFM tables and strikethrough support.
+ * Uses Turndown with GFM tables and strikethrough support. The content of
+ * `<script>`, `<style>`, `<noscript>` and `<template>` is dropped: it is
+ * code or markup, not document text.
  */
 export function htmlToMarkdown(html: string): string {
   const turndownService = new TurndownService({
@@ -18,5 +20,6 @@ export function htmlToMarkdown(html: string): string {
     strongDelimiter: "**",
   });
   turndownService.use(gfm);
+  turndownService.remove(["script", "style", "noscript", "template"]);
   return turndownService.turndown(html);
 }
