@@ -342,4 +342,48 @@ describe("createPersistenceBackedIndexer — Provider-driven", () => {
     const live = await indexer.getIndex("race");
     expect(live).not.toBeNull();
   });
+
+  it("deleteIndex removes an index whose close failed (it stays registered, but closed)", async () => {
+    const persistence = memPersistence();
+    const provider = alphaProvider({ persistable: true });
+    const failing: ModalityProvider<AlphaConfig, AlphaIndex> = {
+      type: "alpha",
+      create(config) {
+        const index = provider.create(config) as AlphaPersistableIndex;
+        index.serialise = async function* () {
+          yield* []; // a generator, so the throw happens on iteration
+          throw new Error("serialise failed");
+        };
+        return index;
+      },
+    };
+    const indexer = createPersistenceBackedIndexer({ providers: [failing], persistence });
+    const idx = await indexer.createIndex({
+      name: "x",
+      subIndexes: { a: { type: "alpha", flavour: "f" } },
+    });
+    await expect(idx.close()).rejects.toThrow("serialise failed");
+
+    await indexer.deleteIndex("x");
+    expect(await indexer.hasIndex("x")).toBe(false);
+  });
+
+  it("deleteIndex wins over a close of the same index started right after it", async () => {
+    const persistence = memPersistence();
+    const indexer = createPersistenceBackedIndexer({
+      providers: [alphaProvider({ persistable: true })],
+      persistence,
+    });
+    const idx = await indexer.createIndex({
+      name: "x",
+      subIndexes: { a: { type: "alpha", flavour: "f" } },
+    });
+    const deleting = indexer.deleteIndex("x");
+    const closing = idx.close();
+    await deleting;
+    await closing;
+    expect(await indexer.hasIndex("x")).toBe(false);
+    await indexer.flush();
+    expect([...persistence.store.keys()].filter((k) => k.startsWith("x/"))).toEqual([]);
+  });
 });

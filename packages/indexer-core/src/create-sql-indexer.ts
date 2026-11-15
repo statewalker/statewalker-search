@@ -20,13 +20,13 @@ import type { SqlFtsDialect } from "./create-sql-fts-retriever.js";
 import { createSqlFtsRetriever } from "./create-sql-fts-retriever.js";
 import type { SqlVectorDialect } from "./create-sql-vector-retriever.js";
 import { createSqlVectorRetriever } from "./create-sql-vector-retriever.js";
+import type { SubIndexSpec } from "./load-actions.js";
 import type { SqlDb } from "./sql-db.js";
 import {
   createSqlKernelIndexer,
   type SavedIndex,
   type SqlKernelStorage,
   type SqlModalityProvider,
-  type SubIndexSpec,
 } from "./sql-kernel.js";
 import {
   legacySqlTableNaming,

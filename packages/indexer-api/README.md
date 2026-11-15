@@ -103,7 +103,7 @@ BM25 and cosine similarity live on different scales, so `Index.search` fuses ran
 
 - **Top-level `paths` is a default.** The composite in `@statewalker/indexer-core` copies it into each sub-query that sets no `paths` of its own; a sub-query's own `paths` wins. Top-level `topK` is not copied: it only cuts the fused list.
 - **Top-level `topK` truncates only the fused list.** Retrieval depth per sub-index is the sub-query's `topK`.
-- `createIndex` throws `Index "<name>" already exists` unless `overwrite: true`. The in-memory backends throw `Cannot create index "<name>": sub-index "<sub>" requires a provider of type "<type>" ...` for an unknown type, and the SQLite backend throws `Cannot load index: sub-index "<sub>" requires modality "<type>" but only [...] are registered.`; the SQL backends (DuckDB, PGlite, SQLite) throw `Cannot create index without any subIndexes` when `subIndexes` is empty.
+- `createIndex` throws `Index "<name>" already exists` unless `overwrite: true`. Every backend throws `Cannot create index "<name>": sub-index "<sub>" requires modality "<type>" but only [...] are registered.` for an unknown type, and accepts an empty `subIndexes` (an index with no sub-indexes).
 - `getIndex` throws `Cannot load index ...: sub-index "<sub>" requires ...` under the default `onMissingProvider: "throw"` when a saved sub-index type has no provider; with `"warn"` it logs and skips that sub-index.
 - Access handle `get(index)` throws `No sub-index named "<name>" is registered on index "<index>"`; use `tryGet` to probe.
 

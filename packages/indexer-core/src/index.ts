@@ -25,6 +25,14 @@ export {
   type SqlVectorDialect,
   type SqlVectorRetrieverOptions,
 } from "./create-sql-vector-retriever.js";
+export {
+  checkCreateSpec,
+  type LoadPlan,
+  missingProviderError,
+  planLoad,
+  type SubIndexPlan,
+  type SubIndexSpec,
+} from "./load-actions.js";
 export { matchesPrefix } from "./path-prefix.js";
 export { readEntryBytes, singleChunk, toBytes } from "./persistence-bytes.js";
 export { type RankedList, reciprocalRankFusion } from "./rrf.js";
@@ -38,7 +46,6 @@ export {
   type SqlKernelStorage,
   type SqlKernelSubIndex,
   type SqlModalityProvider,
-  type SubIndexSpec,
 } from "./sql-kernel.js";
 export {
   buildPathPrefixesSql,

@@ -26,10 +26,8 @@ import type {
   SearchIndex,
 } from "@statewalker/indexer-api";
 import { createCompositeIndex } from "./create-composite-index.js";
+import { checkCreateSpec, planLoad, type SubIndexSpec } from "./load-actions.js";
 import { createSerialiser } from "./run-exclusive.js";
-
-/** A sub-index spec as saved in the manifest: the `type` discriminator plus its config. */
-export type SubIndexSpec = { type: string } & Record<string, unknown>;
 
 /**
  * A modality backed by SQL tables. Opening is async (tables are created, existing data is
@@ -147,16 +145,6 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
     if (closed) throw new Error("Indexer is closed");
   }
 
-  function missingProviderError(subName: string, type: string): Error {
-    return new Error(
-      `Cannot load index: sub-index "${subName}" requires modality "${type}" but only [${[
-        ...providers.keys(),
-      ]
-        .map((t) => `"${t}"`)
-        .join(", ")}] are registered.`,
-    );
-  }
-
   async function writeManifest(name: string, entry: IndexManifest): Promise<void> {
     await storage.writeManifest(name, JSON.stringify(entry));
     manifest.set(name, entry);
@@ -203,9 +191,8 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
   }
 
   /**
-   * Open an Index from its spec. `options` carries the getIndex load actions; `saved` is the
-   * manifest entry, undefined for createIndex. Returns the effective spec to save (reinit
-   * replaces, skip keeps the saved).
+   * Open an Index from its spec, following the shared load-action rules (`planLoad`). `saved`
+   * is the manifest entry, undefined for createIndex. Returns the effective spec to save.
    */
   async function openIndex(
     name: string,
@@ -213,55 +200,29 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
     saved: SavedIndex | undefined,
     options: GetIndexOptions | undefined,
     metadata: Metadata | undefined,
-  ): Promise<{ index: Index; effective: Record<string, SubIndexSpec> }> {
-    const onMissing = options?.onMissingProvider ?? "throw";
-    const actions = options?.subIndexes;
-
-    // Under "throw", fail before any table is touched: an unsupported reinit must not drop data.
-    if (onMissing === "throw") {
-      for (const [subName, saved] of Object.entries(subIndexes)) {
-        const action = actions?.[subName];
-        if (action && "skip" in action) continue;
-        const type = action ? action.type : saved.type;
-        if (!providers.has(type)) throw missingProviderError(subName, type);
-      }
-    }
-
+  ): Promise<{ index: Index; effective: Record<string, SubIndexSpec>; changed: boolean }> {
+    // Throws for a missing provider before any table is touched.
+    const { plans, effective, changed } = planLoad(name, subIndexes, options, providers);
     const tables = await openTables(name, subIndexes, saved);
     const bindings: AnySubIndexBinding[] = [];
-    const effective: Record<string, SubIndexSpec> = {};
 
-    for (const [subName, saved] of Object.entries(subIndexes)) {
-      const action = actions?.[subName];
-      if (action && "skip" in action && action.skip === true) {
-        effective[subName] = saved; // its saved spec and tables are kept
-        continue;
-      }
-      const reinit = action !== undefined && !("skip" in action);
-      const spec = reinit ? (action as SubIndexSpec) : saved;
-      const provider = providers.get(spec.type);
-      if (!provider) {
-        if (onMissing === "throw") throw missingProviderError(subName, spec.type);
-        const g = globalThis as { console?: { warn(...args: unknown[]): void } };
-        g.console?.warn(`Sub-index "${subName}" (type "${spec.type}") has no provider; skipping.`);
-        effective[subName] = saved; // like a skip: the saved spec and tables are kept
-        continue;
-      }
-
-      let ctx = tables.contexts.get(subName);
-      if (reinit) {
+    for (const plan of plans) {
+      if (plan.action === "skip" || plan.action === "missing") continue; // saved tables kept
+      let ctx = tables.contexts.get(plan.name);
+      if (plan.action === "reinit") {
         // Drop the saved tables; the new sub-index gets fresh ones.
-        if (ctx !== undefined) await providers.get(saved.type)?.drop(ctx);
-        ctx = await storage.subContext(name, subName, spec.type, tables.shared, undefined);
-        tables.contexts.set(subName, ctx);
+        if (ctx !== undefined) await providers.get(plan.saved.type)?.drop(ctx);
+        ctx = await storage.subContext(name, plan.name, plan.spec.type, tables.shared, undefined);
+        tables.contexts.set(plan.name, ctx);
       }
       if (ctx === undefined) {
         // Unreachable: a sub-index whose saved type has a provider has a context.
-        throw new Error(`No context for sub-index "${subName}" of index "${name}"`);
+        throw new Error(`No context for sub-index "${plan.name}" of index "${name}"`);
       }
-      const { type, ...config } = spec;
-      bindings.push({ name: subName, type, config, index: await provider.open(ctx, config) });
-      effective[subName] = spec;
+      const { type, ...config } = plan.spec;
+      const provider = providers.get(type);
+      if (!provider) throw new Error(`No provider for "${type}"`); // checked by planLoad
+      bindings.push({ name: plan.name, type, config, index: await provider.open(ctx, config) });
     }
 
     const index: Index = createCompositeIndex({
@@ -291,7 +252,7 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
           }
         : undefined,
     });
-    return { index, effective };
+    return { index, effective, changed };
   }
 
   return {
@@ -305,10 +266,8 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
     createIndex(params: CreateIndexParams): Promise<Index> {
       return runExclusive(async () => {
         ensureOpen();
-        const { name, subIndexes, overwrite, metadata } = params;
-        if (!subIndexes || Object.keys(subIndexes).length === 0) {
-          throw new Error("Cannot create index without any subIndexes");
-        }
+        const { name, overwrite, metadata } = params;
+        const subIndexes = checkCreateSpec(name, params.subIndexes, providers);
         if (indexes.has(name) || manifest.has(name)) {
           if (!overwrite) throw new Error(`Index "${name}" already exists`);
           await closeLive(name);
@@ -347,7 +306,7 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
         if (cached) return cached;
         const entry = manifest.get(name);
         if (!entry) return null;
-        const { index, effective } = await openIndex(
+        const { index, effective, changed } = await openIndex(
           name,
           entry.subIndexes,
           entry,
@@ -355,7 +314,7 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
           entry.metadata,
         );
         // Load actions that changed the spec (reinit) are saved.
-        if (JSON.stringify(effective) !== JSON.stringify(entry.subIndexes)) {
+        if (changed) {
           await writeManifest(name, { ...entry, subIndexes: effective });
         }
         indexes.set(name, index);
@@ -371,10 +330,11 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
     deleteIndex(name: string): Promise<void> {
       return runExclusive(async () => {
         ensureOpen();
-        // Close the open instance (if any), then drop every table the manifest names:
-        // this works after index.close() and covers sub-indexes skipped at open.
-        await closeLive(name);
-        if (manifest.has(name)) await deleteIndexData(name);
+        // An open instance deletes itself (its bindings drop their tables, then every table the
+        // manifest names, skipped sub-indexes' too); otherwise drop the saved tables directly.
+        const live = indexes.get(name);
+        if (live) await live.deleteIndex();
+        else if (manifest.has(name)) await deleteIndexData(name);
       });
     },
 
