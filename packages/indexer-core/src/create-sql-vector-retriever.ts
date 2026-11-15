@@ -146,8 +146,9 @@ export function createSqlVectorRetriever(opts: SqlVectorRetrieverOptions): Embed
 
     async addDocument(blocks: EmbeddingBlock[]): Promise<void> {
       ensureOpen();
+      // Validate the whole batch before writing, so a bad block leaves nothing half-written.
+      for (const block of blocks) validateDimensionality(info, block.embedding);
       for (const block of blocks) {
-        validateDimensionality(info, block.embedding);
         const docId = await resolveDocId(block.path);
         const bound = dialect.bindEmbedding(block.embedding);
         const cast = dialect.embeddingCastSuffix(dim);

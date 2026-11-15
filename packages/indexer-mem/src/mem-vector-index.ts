@@ -126,8 +126,11 @@ export class MemVectorIndex
   async addDocument(blocks: EmbeddingBlock[]): Promise<void> {
     this.ensureOpen();
     if (blocks.length === 0) return;
+    // Validate the whole batch before writing, and mark dirty first, so a failure cannot leave
+    // blocks written that the cached serialisation does not include.
+    for (const block of blocks) validateDimensionality(this.info, block.embedding);
+    this.dirty = true;
     for (const block of blocks) {
-      validateDimensionality(this.info, block.embedding);
       const key = compositeKey(block.path, block.blockId);
       this.entries.set(key, {
         path: block.path,
@@ -136,7 +139,6 @@ export class MemVectorIndex
         metadata: block.metadata,
       });
     }
-    this.dirty = true;
   }
 
   async addDocuments(
