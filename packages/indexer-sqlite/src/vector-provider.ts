@@ -34,7 +34,9 @@ export function newSqliteVectorProvider(): SqliteModalityProvider<VectorConfig, 
         metric: "cosine",
       });
       await engine.init();
-      const list = newEnumeration(db, blockIds, `SELECT id FROM ${engine.idTable}`);
+      const list = newEnumeration(db, blockIds, `SELECT id FROM ${engine.idTable}`, () =>
+        ensureOpen(),
+      );
       let closed = false;
       const ensureOpen = () => {
         if (closed) throw new Error("VectorIndex is closed");
@@ -52,6 +54,7 @@ export function newSqliteVectorProvider(): SqliteModalityProvider<VectorConfig, 
 
         async *search(params: VectorQuery): AsyncGenerator<VectorResult> {
           ensureOpen();
+          for (const q of params.embeddings ?? []) validateDimensionality(info, q);
           const k = params.topK ?? 100;
           const allowed = params.paths?.length
             ? new Set(
@@ -109,6 +112,7 @@ export function newSqliteVectorProvider(): SqliteModalityProvider<VectorConfig, 
         getDocumentBlocksRefs: (p?: DocumentPath) => list.refs(p),
 
         async *getDocumentsBlocks(p?: DocumentPath): AsyncGenerator<VectorBlock> {
+          ensureOpen();
           const entries = await list.entries(p);
           const vectors = await engine.getVectors(entries.map((e) => e.id));
           for (const e of entries) {

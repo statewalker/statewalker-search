@@ -47,7 +47,9 @@ export function newSqliteFullTextProvider(): SqliteModalityProvider<FullTextConf
       await db.exec(
         `CREATE VIRTUAL TABLE IF NOT EXISTS ${table} USING fts5(content, metadata UNINDEXED, tokenize='${tokenizerFor(config.language)}')`,
       );
-      const list = newEnumeration(db, blockIds, `SELECT rowid AS id FROM ${table}`);
+      const list = newEnumeration(db, blockIds, `SELECT rowid AS id FROM ${table}`, () =>
+        ensureOpen(),
+      );
       let closed = false;
       const ensureOpen = () => {
         if (closed) throw new Error("FullTextIndex is closed");
@@ -135,6 +137,7 @@ export function newSqliteFullTextProvider(): SqliteModalityProvider<FullTextConf
         getDocumentBlocksRefs: (p?: DocumentPath) => list.refs(p),
 
         async *getDocumentsBlocks(p?: DocumentPath): AsyncGenerator<FullTextBlock> {
+          ensureOpen();
           const scope = pathPrefixSql("b.path", p ? [p] : []);
           const rows = await db.query<{
             path: string;

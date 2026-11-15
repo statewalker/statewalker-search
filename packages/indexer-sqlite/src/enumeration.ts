@@ -15,8 +15,16 @@ export interface Enumeration {
   refs(prefix?: DocumentPath): AsyncGenerator<BlockReference>;
 }
 
-/** `memberIdsSql` is a `SELECT … AS id` listing the sub-index's ids, e.g. `SELECT rowid AS id FROM t`. */
-export function newEnumeration(db: Db, blockIds: BlockIds, memberIdsSql: string): Enumeration {
+/**
+ * `memberIdsSql` is a `SELECT … AS id` listing the sub-index's ids, e.g. `SELECT rowid AS id FROM t`.
+ * `ensureOpen` runs before every call, so a closed sub-index throws like the other backends.
+ */
+export function newEnumeration(
+  db: Db,
+  blockIds: BlockIds,
+  memberIdsSql: string,
+  ensureOpen: () => void = () => {},
+): Enumeration {
   const from = (prefix?: DocumentPath) => {
     const scope = pathPrefixSql("b.path", prefix ? [prefix] : []);
     return {
@@ -26,11 +34,13 @@ export function newEnumeration(db: Db, blockIds: BlockIds, memberIdsSql: string)
   };
   return {
     async size(prefix) {
+      ensureOpen();
       const f = from(prefix);
       const rows = await db.query<{ n: number }>(`SELECT COUNT(*) AS n ${f.sql}`, f.params);
       return Number(rows[0]?.n ?? 0);
     },
     async entries(prefix) {
+      ensureOpen();
       const f = from(prefix);
       const rows = await db.query<{ id: number; path: string; block_id: string }>(
         `SELECT b.id, b.path, b.block_id ${f.sql} ORDER BY b.id`,
@@ -43,6 +53,7 @@ export function newEnumeration(db: Db, blockIds: BlockIds, memberIdsSql: string)
       }));
     },
     async *paths(prefix) {
+      ensureOpen();
       const f = from(prefix);
       const rows = await db.query<{ path: string }>(`SELECT DISTINCT b.path ${f.sql}`, f.params);
       for (const r of rows) yield r.path as DocumentPath;

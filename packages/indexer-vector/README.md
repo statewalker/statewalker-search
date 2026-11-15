@@ -56,6 +56,7 @@ export const myProvider: VectorProvider = {
 - `setVectorConfig` writes `params.subIndexes[name] = { type: "vector", ...config }`.
 - `VectorBlock.embedding` and `VectorQuery.embeddings` are `Float32Array`. Their length must equal `dimensionality`; all current backends throw `Expected dimensionality 384, got 768` (with your numbers) on `addDocument` otherwise, and on `search` too except SQLite, whose `search` throws `vector-index: expected 384 dims, got 768`.
 - `VectorQuery` is `{ embeddings, topK?, paths? }`. With several embeddings, every current backend keeps each block's best similarity across them (not a sum). `topK` and `paths` here are what the sub-index uses; the top-level request values are not forwarded to it.
+- **A zero query vector has no direction.** Cosine similarity is undefined for it, and backends differ: the in-memory index and SQLite score every block 0, DuckDB scores -1. Do not search with an all-zero embedding. A query embedding of the wrong size throws `Expected dimensionality <n>, got <m>` on every backend.
 - `VectorResult` is `{ path, blockId, score }` with a similarity score (cosine in all current backends).
 - `model` is stored with the sub-index so a caller can detect that saved vectors came from another model and reinitialise the sub-index (`indexer.getIndex(name, { subIndexes: { semantic: { type: "vector", ... } } })`).
 - Dependencies: `@statewalker/indexer-api` only.
