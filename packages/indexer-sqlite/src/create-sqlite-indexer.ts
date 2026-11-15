@@ -121,9 +121,13 @@ export async function createSqliteIndexer(options: SqliteIndexerOptions): Promis
       effective[sub] = spec;
     }
 
-    const index = createCompositeIndex({
+    const index: Index = createCompositeIndex({
       name,
       bindings,
+      // A closed instance leaves the cache, so getIndex opens a new one.
+      onClose: async () => {
+        if (indexes.get(name) === index) indexes.delete(name);
+      },
       onDeleteIndex: async () => {
         // Bound sub-indexes dropped themselves; skipped ones still own tables.
         for (const [sub, spec] of Object.entries(manifest.get(name)?.subIndexes ?? {})) {
@@ -192,27 +196,33 @@ export async function createSqliteIndexer(options: SqliteIndexerOptions): Promis
       return manifest.has(name);
     },
 
-    async deleteIndex(name: string): Promise<void> {
-      ensureOpen();
-      const live = indexes.get(name);
-      if (live) {
-        await live.deleteIndex();
-        return;
-      }
-      const entry = manifest.get(name);
-      if (entry) await dropIndexTables(name, entry.subIndexes);
+    deleteIndex(name: string): Promise<void> {
+      return runExclusive(async () => {
+        ensureOpen();
+        const live = indexes.get(name);
+        if (live) {
+          await live.deleteIndex();
+          return;
+        }
+        const entry = manifest.get(name);
+        if (entry) await dropIndexTables(name, entry.subIndexes);
+      });
     },
 
-    async flush(): Promise<void> {
-      ensureOpen();
-      for (const index of indexes.values()) await index.flush();
+    flush(): Promise<void> {
+      return runExclusive(async () => {
+        ensureOpen();
+        for (const index of indexes.values()) await index.flush();
+      });
     },
 
-    async close(): Promise<void> {
-      if (closed) return;
-      closed = true;
-      for (const index of indexes.values()) await index.close().catch(() => undefined);
-      indexes.clear();
+    close(): Promise<void> {
+      return runExclusive(async () => {
+        if (closed) return;
+        closed = true;
+        for (const index of [...indexes.values()]) await index.close().catch(() => undefined);
+        indexes.clear();
+      });
     },
   } satisfies Indexer;
 }
