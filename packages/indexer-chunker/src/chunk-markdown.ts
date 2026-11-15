@@ -48,13 +48,50 @@ export function findBestCutoff(
 }
 
 /**
+ * Throw a RangeError unless `targetChars` is a positive integer and
+ * `overlap` an integer with `0 <= overlap < targetChars`.
+ */
+function validateOptions(targetChars: number, overlap: number): void {
+  if (!Number.isInteger(targetChars) || targetChars <= 0) {
+    throw new RangeError(`targetChars must be a positive integer, got ${targetChars}`);
+  }
+  if (!Number.isInteger(overlap) || overlap < 0 || overlap >= targetChars) {
+    throw new RangeError(
+      `overlap must be an integer with 0 <= overlap < targetChars (${targetChars}), got ${overlap}`,
+    );
+  }
+}
+
+/** True when `pos` falls between the two halves of a UTF-16 surrogate pair. */
+function splitsSurrogatePair(text: string, pos: number): boolean {
+  if (pos <= 0 || pos >= text.length) return false;
+  const before = text.charCodeAt(pos - 1);
+  const after = text.charCodeAt(pos);
+  return before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff;
+}
+
+/**
+ * Move `pos` off the middle of a surrogate pair: back by one when that keeps
+ * it above `min`, otherwise forward by one.
+ */
+function keepSurrogatePair(text: string, pos: number, min: number): number {
+  if (!splitsSurrogatePair(text, pos)) return pos;
+  return pos - 1 > min ? pos - 1 : pos + 1;
+}
+
+/**
  * Split markdown text into overlapping chunks, preferring structural
- * boundaries (headings, horizontal rules, paragraph breaks) as split points.
+ * boundaries (headings, code fences, horizontal rules, paragraph breaks) as
+ * split points.
+ *
+ * Throws a RangeError unless `targetChars` is a positive integer and
+ * `overlap` an integer with `0 <= overlap < targetChars`.
  */
 export function chunkMarkdown(text: string, options: ChunkOptions): Chunk[] {
-  if (text.length === 0) return [];
-
   const { targetChars, overlap = 0, windowFraction = 0.5, decayFactor = 0.5 } = options;
+  validateOptions(targetChars, overlap);
+
+  if (text.length === 0) return [];
 
   const breakPoints = scanBreakPoints(text);
   const fences = findCodeFences(text);
@@ -81,26 +118,29 @@ export function chunkMarkdown(text: string, options: ChunkOptions): Chunk[] {
     // Find best cutoff near the ideal end
     let cutoff = findBestCutoff(breakPoints, fences, idealEnd, windowChars, decayFactor);
 
-    // If no good cutoff found, just cut at idealEnd
+    // If no good cutoff found, just cut at idealEnd, but never between the
+    // two halves of a surrogate pair. Break points sit at line starts, so
+    // only this hard cut can split one.
     if (cutoff === -1 || cutoff <= startPos) {
-      cutoff = idealEnd;
+      cutoff = keepSurrogatePair(text, idealEnd, startPos);
     }
 
     // Never split inside or on a code-fence boundary. Use the same inclusive
     // semantics as isInsideCodeFence — a cutoff equal to fence.start (the
-    // opening ``` line) or fence.end (the start of the closing ``` line) is
-    // "inside" and must be advanced past the closing-fence line. Re-scan
+    // opening fence line) or fence.end (the start of the closing fence line)
+    // is "inside" and must be advanced past the closing-fence line. Re-scan
     // after each advance so back-to-back fences don't leave the cutoff in
-    // the next one.
+    // the next one. An unclosed fence, or a closing fence on the last line,
+    // moves the cutoff to the end of the text, never past it.
     let advanced = true;
     while (advanced && cutoff < text.length) {
       advanced = false;
       for (const fence of fences) {
         if (cutoff >= fence.start && cutoff <= fence.end) {
-          // Advance past the closing-``` line (including its trailing newline).
+          // Advance past the closing fence line (including its trailing newline).
           let next = fence.end;
           while (next < text.length && text[next] !== "\n") next++;
-          cutoff = next + 1;
+          cutoff = Math.min(next + 1, text.length);
           advanced = true;
           break;
         }
@@ -114,9 +154,11 @@ export function chunkMarkdown(text: string, options: ChunkOptions): Chunk[] {
       endPos: cutoff,
     });
 
-    // Next chunk starts at cutoff minus overlap
-    const nextStart = Math.max(startPos + 1, cutoff - overlap);
-    startPos = nextStart;
+    if (cutoff >= text.length) break;
+
+    // Next chunk starts at cutoff minus overlap, always moving forward and
+    // never between the two halves of a surrogate pair.
+    startPos = keepSurrogatePair(text, Math.max(startPos + 1, cutoff - overlap), startPos);
     index++;
   }
 
