@@ -134,7 +134,9 @@ for (const flavour of flavours) {
         )
         .mockImplementation(() => {});
       const idx = await lenient.getIndex("docs", { onMissingProvider: "warn" });
-      expect(warn).toHaveBeenCalledWith('Sub-index "b" (type "other") has no provider; skipping.');
+      expect(warn).toHaveBeenCalledWith(
+        'Sub-index "b" (type "other") on index "docs" has no provider; skipping.',
+      );
       warn.mockRestore();
       expect(idx?.getBinding("a")).toBeDefined();
       expect(idx?.getBinding("b")).toBeUndefined();

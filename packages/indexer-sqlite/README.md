@@ -235,7 +235,7 @@ the earlier batches stay written.
 - **`truncated: true` is easy to miss.** `for await (const hit of sub.search(q))` drops the
   summary the generator returns; use `grep` to read it.
 - **Re-opening needs the same providers.** `getIndex` on an Index with a sub-index whose type has
-  no registered provider throws `Cannot load index: sub-index "<name>" requires modality
+  no registered provider throws `Cannot load index "<index>": sub-index "<name>" requires modality
   "<type>" but only [...] are registered.`; pass `{ onMissingProvider: "warn" }` to open it
   without that sub-index.
 

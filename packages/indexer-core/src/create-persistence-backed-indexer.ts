@@ -14,6 +14,7 @@ import type {
 } from "@statewalker/indexer-api";
 import { isPersistable } from "@statewalker/indexer-api";
 import { createCompositeIndex } from "./create-composite-index.js";
+import { checkCreateSpec, planLoad } from "./load-actions.js";
 import { readEntryBytes, singleChunk, toBytes } from "./persistence-bytes.js";
 import { createSerialiser } from "./run-exclusive.js";
 
@@ -112,10 +113,6 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
     type: string,
   ): ModalityProvider<unknown, SearchIndex<unknown, unknown, ScoredHit>> | undefined {
     return providersByType.get(type);
-  }
-
-  function listProviderTypes(): string[] {
-    return [...providersByType.keys()];
   }
 
   async function loadFromPersistence(): Promise<void> {
@@ -285,57 +282,24 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
       return newComposite(name, []);
     }
 
-    const onMissing: "throw" | "warn" = options?.onMissingProvider ?? "throw";
-    const optSubIndexes = options?.subIndexes;
+    // The shared load-action rules; throws for a missing provider before anything is built.
+    const { plans } = planLoad(name, manifest.subIndexes, options, providersByType);
 
     const bindings: AnySubIndexBinding[] = [];
     const skipped = new Set<string>();
     const perIndex = savedSubEntries.get(name);
-    for (const [subName, savedSpec] of Object.entries(manifest.subIndexes)) {
-      const action = optSubIndexes?.[subName];
-      if (action && "skip" in action && action.skip === true) {
-        skipped.add(subName); // preserve saved bytes through next save (D9)
+    for (const plan of plans) {
+      if (plan.action === "skip" || plan.action === "missing") {
+        skipped.add(plan.name); // its saved spec and bytes survive the next save (D9)
         continue;
       }
-
-      // Determine effective type + config + whether to call loadFrom.
-      let effType: string;
-      let effConfig: Record<string, unknown>;
-      let useLoadFrom: boolean;
-      if (action && !("skip" in action)) {
-        const { type: actType, ...rest } = action;
-        effType = actType;
-        effConfig = rest;
-        useLoadFrom = false; // reinit
-      } else {
-        const { type: savedType, ...rest } = savedSpec;
-        effType = savedType;
-        effConfig = rest;
-        useLoadFrom = true; // adopt
-      }
-
+      const { type: effType, ...effConfig } = plan.spec;
       const provider = findProvider(effType);
-      if (!provider) {
-        if (onMissing === "throw") {
-          throw new Error(
-            `Cannot load index "${name}": sub-index "${subName}" requires a provider of type "${effType}" but only [${listProviderTypes()
-              .map((t) => `"${t}"`)
-              .join(", ")}] are registered.`,
-          );
-        }
-        // warn → skip silently apart from the console warning
-        const g = globalThis as { console?: { warn(...args: unknown[]): void } };
-        g.console?.warn(
-          `Sub-index "${subName}" (type "${effType}") on index "${name}" has no matching Provider; skipping.`,
-        );
-        // Like an explicit skip: keep the saved spec and bytes through the next save.
-        skipped.add(subName);
-        continue;
-      }
-
+      if (!provider) throw new Error(`No provider for "${effType}"`); // checked by planLoad
       const subIndex = provider.create(effConfig);
-      if (useLoadFrom && isPersistable(subIndex)) {
-        const bytesBySuffix = perIndex?.get(subName);
+      // Adopt loads the saved bytes; reinit starts empty (its old bytes go at the next save).
+      if (plan.action === "adopt" && isPersistable(subIndex)) {
+        const bytesBySuffix = perIndex?.get(plan.name);
         if (bytesBySuffix && bytesBySuffix.size > 0) {
           const entries: PersistenceEntry[] = [];
           for (const [suffix, bytes] of bytesBySuffix) {
@@ -344,7 +308,7 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
           await subIndex.loadFrom(entries);
         }
       }
-      bindings.push({ name: subName, type: effType, config: effConfig, index: subIndex });
+      bindings.push({ name: plan.name, type: effType, config: effConfig, index: subIndex });
     }
 
     if (skipped.size > 0) skippedSubsPerIndex.set(name, skipped);
@@ -409,7 +373,8 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
       return runExclusive(async () => {
         ensureOpen();
         await ensureInitialized();
-        const { name, subIndexes, overwrite, metadata } = params;
+        const { name, overwrite, metadata } = params;
+        const subIndexes = checkCreateSpec(name, params.subIndexes, providersByType);
 
         if (knownNames.has(name) || liveIndexes.has(name)) {
           if (!overwrite) throw new Error(`Index "${name}" already exists`);
@@ -419,16 +384,10 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
         }
 
         const bindings: AnySubIndexBinding[] = [];
-        for (const [subName, spec] of Object.entries(subIndexes ?? {})) {
+        for (const [subName, spec] of Object.entries(subIndexes)) {
           const { type, ...config } = spec;
           const provider = findProvider(type);
-          if (!provider) {
-            throw new Error(
-              `Cannot create index "${name}": sub-index "${subName}" requires a provider of type "${type}" but only [${listProviderTypes()
-                .map((t) => `"${t}"`)
-                .join(", ")}] are registered.`,
-            );
-          }
+          if (!provider) throw new Error(`No provider for "${type}"`); // checked above
           const subIndex = provider.create(config);
           bindings.push({ name: subName, type, config, index: subIndex });
         }
@@ -464,9 +423,11 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
       return runExclusive(async () => {
         ensureOpen();
         await ensureInitialized();
+        // An open instance deletes itself (its sub-indexes, then its state here, through
+        // onDeleteIndex); otherwise its saved state is dropped directly.
         const live = liveIndexes.get(name);
+        if (live) await live.deleteIndex();
         forgetIndex(name);
-        if (live) await live.close();
       });
     },
 

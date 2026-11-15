@@ -276,6 +276,37 @@ export function runKernelConformanceSuite(name: string, options: KernelSuiteOpti
         await indexer3.close();
       });
 
+      it("createIndex with an unregistered type throws the same message on every backend", async () => {
+        const indexer = await factory.create();
+        try {
+          await expect(
+            indexer.createIndex({ name: "test", subIndexes: { primary: { type: "nope" } } }),
+          ).rejects.toThrow(
+            'Cannot create index "test": sub-index "primary" requires modality "nope"',
+          );
+          expect(await indexer.hasIndex("test")).toBe(false);
+        } finally {
+          await indexer.close();
+          await factory.cleanup?.();
+        }
+      });
+
+      it("createIndex with no sub-indexes creates an empty index on every backend", async () => {
+        const indexer = await factory.create();
+        try {
+          const idx = await indexer.createIndex({ name: "empty", subIndexes: {} });
+          expect([...idx.getBindings()]).toEqual([]);
+          await idx.close();
+          const reopened = await indexer.getIndex("empty");
+          expect([...(reopened?.getBindings() ?? [])]).toEqual([]);
+          await indexer.deleteIndex("empty");
+          expect(await indexer.hasIndex("empty")).toBe(false);
+        } finally {
+          await indexer.close();
+          await factory.cleanup?.();
+        }
+      });
+
       it("onMissingProvider: 'throw' (default) raises when a sub-index's type has no Provider", async () => {
         const indexer = await factory.create();
         try {
@@ -286,7 +317,9 @@ export function runKernelConformanceSuite(name: string, options: KernelSuiteOpti
           // A reinit to an unregistered type is the portable way to reach the policy.
           await expect(
             indexer.getIndex("test", { subIndexes: { primary: { type: "no-such-modality" } } }),
-          ).rejects.toThrow(/no-such-modality/);
+          ).rejects.toThrow(
+            'Cannot load index "test": sub-index "primary" requires modality "no-such-modality"',
+          );
           const warned = await indexer.getIndex("test", {
             onMissingProvider: "warn",
             subIndexes: { primary: { type: "no-such-modality" } },
