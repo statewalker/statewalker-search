@@ -32,7 +32,6 @@
     "@changesets/cli": "catalog:",
     "@types/node": "catalog:",
     "tsx": "catalog:",
-    "turbo": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
