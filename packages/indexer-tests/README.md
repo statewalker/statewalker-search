@@ -16,16 +16,17 @@ Add as a dev dependency inside this workspace: `"@statewalker/indexer-tests": "w
 
 | Export | Checks |
 | --- | --- |
-| `runKernelConformanceSuite(name, { factory, primaryConfig, secondaryConfig })` | Binding registry, create/get/delete, manifests, load actions, `onMissingProvider`, persistence round trip. |
+| `runKernelConformanceSuite(name, { factory, primaryConfig, secondaryConfig })` | Binding registry, create/get/delete, manifest round trip and load actions (adopt, skip, reinit; with `createWithPersistence`), `onMissingProvider` through a reinit to an unregistered type. |
+| `runLifecycleConformanceSuite(name, { factory, fullTextConfig, vectorConfig })` | Closing, reopening and deleting an index: eviction on close, concurrent opens, deletes after close and with skipped sub-indexes, reinit to an unregistered type. |
 | `runFullTextConformanceSuite(name, provider, { config })` | One full-text sub-index from a `FullTextProvider`. |
 | `runFullTextMultiWordSuite(...)` | Multi-word full-text queries. |
 | `runVectorConformanceSuite(name, provider, { config })` | One vector sub-index from a `VectorProvider`. |
-| `runRrfBlendingSuite(name, { factory, config, populate, ... })` | Fusion order and sub-results. |
+| `runRrfBlendingSuite(name, { factory, config, populate, ... })` | Fusion scores (not native pass-through, strictly decreasing), sub-results, per-sub-query and top-level `topK`, top-level and per-sub-query `paths`. |
 | `runMultiInstanceConformanceSuite(...)` | Several sub-indexes of the same type on one index. |
 | `runNgramConformanceSuite(name, { factory, config })` | One n-gram sub-index (registered as `"g"`) through the `Indexer`: literal and regex matches with offsets and lines, default case sensitivity, score = match count, path scope, deletion and replacement, no match across blocks, patterns shorter than an n-gram, and `Index.search` fusion. `config` is the full sub-index config, e.g. `{ type: "ngram", store: "fts5" }`. |
 | `MemoryPersistence`, `collect`, `defined` | Test helpers. |
 
-`IndexerFactory` is `{ create(), createWithPersistence?(persistence), cleanup?() }`.
+`IndexerFactory` is `{ create(), createWithPersistence?(persistence), cleanup?() }`. Tests that need `createWithPersistence` are skipped (and reported as skipped) without it; SQL backends implement it by reusing one database per persistence object, so a second indexer reopens what the first wrote.
 
 ## Examples
 
@@ -65,7 +66,6 @@ Run a backend's suites with `pnpm --filter @statewalker/indexer-mem-minisearch t
 ## Internals
 
 - The suites are self-contained: each creates its own small data set.
-- `src/fixtures/` holds Markdown documents, queries and precomputed embeddings. They are not exported, because the loader uses Node file APIs.
 - Dependencies: `@statewalker/indexer-api`, `@statewalker/indexer-fulltext`, `@statewalker/indexer-vector`, `@statewalker/indexer-ngram`, `@statewalker/indexer-search`; peer `vitest`.
 
 ## License

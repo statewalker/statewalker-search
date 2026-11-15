@@ -38,9 +38,3 @@ export type { IndexerFactory } from "./conformance/types.js";
 
 export type { VectorSuiteOptions } from "./conformance/vector.suite.js";
 export { runVectorConformanceSuite } from "./conformance/vector.suite.js";
-
-// Fixtures (markdown docs, queries, pre-computed embeddings) remain on disk
-// under `./fixtures/` for any future per-modality suite that wants them, but
-// are not re-exported as a public surface — the new conformance suites are
-// self-contained and the fixture loader uses Node APIs that the package
-// otherwise avoids depending on.
