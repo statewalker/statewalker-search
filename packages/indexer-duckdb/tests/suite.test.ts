@@ -300,3 +300,58 @@ describe("DuckDB Indexer — full-text writes that fail part-way", () => {
     }
   });
 });
+
+describe("DuckDB Indexer — full-text index schema cleanup", () => {
+  async function ftsSchemas(db: Awaited<ReturnType<typeof newNodeDuckDb>>): Promise<string[]> {
+    const rows = await db.query<{ schema_name: string }>(
+      "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'fts_main_%'",
+    );
+    return rows.map((r) => r.schema_name);
+  }
+
+  async function indexWithFts(db: Awaited<ReturnType<typeof newNodeDuckDb>>) {
+    const indexer = await createDuckDbIndexer({ db });
+    const idx = await indexer.createIndex({ name: "schemas", subIndexes: { q: ftConfig } });
+    const fts = newFullTextAccess("q").get(idx);
+    await fts.addDocument([{ path: "/d/1" as DocumentPath, blockId: "a", content: "hello" }]);
+    await idx.flush(); // builds the fts_main_<table> schema
+    return { indexer, idx };
+  }
+
+  it("indexer.deleteIndex drops the fts_main schema", async () => {
+    const db = await newNodeDuckDb();
+    const { indexer } = await indexWithFts(db);
+    try {
+      expect(await ftsSchemas(db)).toHaveLength(1);
+      await indexer.deleteIndex("schemas");
+      expect(await ftsSchemas(db)).toEqual([]);
+    } finally {
+      await indexer.close();
+    }
+  });
+
+  it("index.deleteIndex drops the fts_main schema", async () => {
+    const db = await newNodeDuckDb();
+    const { indexer, idx } = await indexWithFts(db);
+    try {
+      await idx.deleteIndex();
+      expect(await ftsSchemas(db)).toEqual([]);
+    } finally {
+      await indexer.close();
+    }
+  });
+
+  it("createIndex(overwrite) and a reinit drop the old fts_main schema", async () => {
+    const db = await newNodeDuckDb();
+    const { indexer, idx } = await indexWithFts(db);
+    try {
+      await idx.close();
+      await indexer.getIndex("schemas", { subIndexes: { q: ftConfig } });
+      expect(await ftsSchemas(db)).toEqual([]);
+      await indexer.createIndex({ name: "schemas", subIndexes: { q: ftConfig }, overwrite: true });
+      expect(await ftsSchemas(db)).toEqual([]);
+    } finally {
+      await indexer.close();
+    }
+  });
+});

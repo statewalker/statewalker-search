@@ -54,7 +54,6 @@
   },
   "dependencies": {
     "@joplin/turndown-plugin-gfm": "catalog:",
-    "@types/turndown": "catalog:",
     "exceljs": "catalog:",
     "mammoth": "catalog:",
     "markdown-it": "catalog:",
@@ -63,6 +62,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/turndown": "catalog:",
     "rimraf": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",

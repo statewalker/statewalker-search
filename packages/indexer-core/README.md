@@ -103,7 +103,7 @@ Both builders run `createIndex`, `getIndex`, `deleteIndex`, `flush` and `close` 
 
 ### Closing and deleting an index
 
-`index.close()` removes the instance from its indexer (the composite's `onClose` hook), so a later `getIndex` opens a new one. The provider-based builder first keeps the closed index's manifest and serialised sub-indexes in memory, so the reopened index has its data and the next save still writes it. `indexer.deleteIndex(name)` works on a closed index too, and both it and `index.deleteIndex()` drop every sub-index the manifest names, including those skipped at open. A reinit (`getIndex(name, { subIndexes: { sub: config } })`) checks that the new type is supported before dropping the old sub-index.
+`index.close()` removes the instance from its indexer (the composite's `onClose` hook), so a later `getIndex` opens a new one. The provider-based builder first keeps the closed index's manifest and serialised sub-indexes in memory, so the reopened index has its data and the next save still writes it. `indexer.deleteIndex(name)` works on a closed index too, and both it and `index.deleteIndex()` drop every sub-index the manifest names, including those skipped at open. A reinit (`getIndex(name, { subIndexes: { sub: config } })`) checks that the new type is supported before dropping the old sub-index. `close()` and `deleteIndex()` on the composite run every sub-index's step even when one throws, then rethrow (an `AggregateError` when several failed). A SQL full-text dialect may define `drop` to remove auxiliary structures with the table; DuckDB uses it for the `fts_main_<table>` schema.
 
 ### Dependencies
 
