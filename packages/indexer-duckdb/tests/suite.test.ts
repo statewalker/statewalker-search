@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { newNodeDuckDb } from "@statewalker/db-duckdb-node";
 import type { DocumentPath, Index, IndexerPersistence } from "@statewalker/indexer-api";
-import { sanitizePrefix } from "@statewalker/indexer-core";
+import { createSqlIndexer, legacySqlTableNaming, sqlTableNaming } from "@statewalker/indexer-core";
 import type { FulltextQuery } from "@statewalker/indexer-fulltext";
 import { newFullTextAccess } from "@statewalker/indexer-fulltext";
 import {
@@ -24,10 +24,12 @@ import {
   runLifecycleConformanceSuite,
   runMultiInstanceConformanceSuite,
   runRrfBlendingSuite,
+  runSqlTableNamesSuite,
 } from "@statewalker/indexer-tests";
 import type { VectorQuery } from "@statewalker/indexer-vector";
 import { newVectorAccess } from "@statewalker/indexer-vector";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { duckdbDialect, wrapDbAsSqlDb } from "../src/dialect.js";
 import { createDuckDbIndexer } from "../src/duckdb-indexer.js";
 
 const TEST_DB_DIR = join(fileURLToPath(new URL(".", import.meta.url)), ".testdb");
@@ -171,7 +173,7 @@ describe("DuckDB Indexer — docs-table reclamation", () => {
   });
 
   async function countDocsRows(indexName: string): Promise<number> {
-    const prefix = sanitizePrefix(indexName);
+    const prefix = sqlTableNaming.indexPrefix(indexName);
     const rows = await db.query<{ cnt: number | bigint }>(
       `SELECT COUNT(*) AS cnt FROM idx_${prefix}_docs`,
     );
@@ -354,4 +356,18 @@ describe("DuckDB Indexer — full-text index schema cleanup", () => {
       await indexer.close();
     }
   });
+});
+
+runSqlTableNamesSuite("DuckDB Indexer", {
+  newDb: () => newNodeDuckDb(),
+  closeDb: (db) => db.close(),
+  createIndexer: (db) => createDuckDbIndexer({ db }),
+  createLegacyIndexer: (db) =>
+    createSqlIndexer({
+      db: wrapDbAsSqlDb(db),
+      dialect: duckdbDialect,
+      tableNaming: legacySqlTableNaming,
+    }),
+  fullTextConfig: ftConfig,
+  vectorConfig: vecConfig,
 });

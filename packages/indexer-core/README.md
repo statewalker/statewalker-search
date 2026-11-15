@@ -25,9 +25,9 @@ One entry point, `@statewalker/indexer-core`. Platform-neutral (no Node or DOM A
 | `reciprocalRankFusion(lists, topK, k = 60)` | RRF over `RankedList[]`. |
 | `matchesPrefix`, `buildPathPrefixSql`, `buildPathPrefixesSql`, `escapeLikePattern` | Path-prefix matching in memory and in SQL. |
 | `toBytes`, `singleChunk`, `readEntryBytes` | Build and read `PersistenceEntry` content. |
-| `sqlDocsTableName`, `sqlSubIndexPrefix`, `sqlFtsTableName`, `sqlVectorTableName`, `sqlVectorIndexName` | The `idx_*` table names of the SQL indexer (a storage format: they never change). |
+| `sqlTableNaming`, `legacySqlTableNaming`, `SqlTableNaming`, `sqlDocsTableName`, `sqlFtsTableName`, `sqlVectorTableName`, `sqlVectorIndexName` | The `idx_*` table names of the SQL indexer (a storage format), and the earlier versions' scheme used to find their tables. |
 | `buildSearchFilterSql`, `embeddingToLiteral`, `ISO_639_1_LANGUAGE_NAMES` | Pieces SQL dialects share: path filter plus `topK` bind values, embedding array literal, ISO-639-1 code to language name. |
-| `compositeKey`, `sanitizePrefix`, `validateDimensionality`, `toAsyncIterable`, `createSerialiser` | Small helpers. |
+| `compositeKey`, `sanitizePrefix`, `legacySanitizePrefix`, `validateDimensionality`, `toAsyncIterable`, `createSerialiser` | Small helpers. |
 
 Types: `CompositeIndexOptions`, `PersistenceBackedIndexerOptions`, `SqlIndexerOptions`, `SqlBackedDialect`, `SqlFtsDialect`, `SqlFtsRetrieverOptions`, `SqlVectorDialect`, `SqlVectorRetrieverOptions`, `SqlDb`, `RankedList`, `PathPrefixSql`, `SearchFilterSql`.
 
@@ -97,7 +97,9 @@ idx_<index>_<sub>_fts                        one table per full-text sub-index
 idx_<index>_<sub>_vec                        one table per vector sub-index
 ```
 
-Names are passed through `sanitizePrefix`, which replaces every character outside `[a-zA-Z0-9]` with `_<charCode>_`, so any index or sub-index name gives a valid SQL identifier. The SQL builder does not use providers: it dispatches each sub-index's `type` to the dialect's `fts` or `vec` part, because the shared docs table does not fit the `ModalityProvider.create(config)` shape. Only `"fulltext"` and `"vector"` types are supported there, and `createIndex` with no sub-indexes throws `Cannot create index without any subIndexes` (the provider-based builder accepts an empty index).
+Names are passed through `sanitizePrefix`, which replaces every character outside `[a-z0-9]` with `_<charCode>_`, so any index or sub-index name gives a valid SQL identifier. Upper-case letters are escaped too, because Postgres and DuckDB fold unquoted identifiers to lower case (`Notes` and `notes` must not share tables). Postgres cuts identifiers to 63 bytes, so an index prefix longer than 50 characters, or a sub-index prefix (`<index>_<sub>`) longer than 47, is cut and given a 12-digit hash of the full names (`sqlTableNaming`); every derived name then fits.
+
+Earlier versions kept upper case and did not bound lengths (`legacySqlTableNaming`). For lower-case names short enough, both schemes give the same names. When an index or sub-index has tables only under the earlier scheme, `getIndex` and `deleteIndex` use those, so databases written by earlier versions keep opening without moving data; new and reinitialised sub-indexes get the current names. `createIndex` refuses a name whose tables an earlier version's index already uses (for example `notes` next to an old `Notes`), instead of sharing them. The SQL builder does not use providers: it dispatches each sub-index's `type` to the dialect's `fts` or `vec` part, because the shared docs table does not fit the `ModalityProvider.create(config)` shape. Only `"fulltext"` and `"vector"` types are supported there, and `createIndex` with no sub-indexes throws `Cannot create index without any subIndexes` (the provider-based builder accepts an empty index).
 
 ### Writes are serialised
 
