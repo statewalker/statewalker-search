@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   createSqliteIndexer,
   newSqliteFullTextProvider,
+  newSqliteNgramProvider,
   newSqliteVectorProvider,
 } from "../src/index.js";
 import { asModalityProvider } from "./support/as-modality-provider.js";
@@ -73,6 +74,41 @@ for (const flavour of flavours) {
       });
       return { db, indexer, sub: newVectorAccess("v").get(index) };
     }
+
+    it("a query embedding of the wrong size fails with the shared dimensionality error", async () => {
+      const { sub } = await open();
+      await expect(collect(sub.search({ embeddings: [vec(1, 0)], topK: 1 }))).rejects.toThrow(
+        "Expected dimensionality 3, got 2",
+      );
+    });
+
+    it("every read of a closed sub-index throws, for each provider", async () => {
+      const db = await flavour.open();
+      const indexer = await createSqliteIndexer({
+        db,
+        providers: [
+          newSqliteFullTextProvider(),
+          newSqliteVectorProvider(),
+          newSqliteNgramProvider(),
+        ],
+      });
+      const index = await indexer.createIndex({
+        name: "closed",
+        subIndexes: {
+          q: { type: "fulltext", language: "en" },
+          v: { type: "vector", dimensionality: 3, model: "m" },
+          g: { type: "ngram" },
+        },
+      });
+      const subs = [...index.getBindings()].map((b) => b.index);
+      await index.close();
+      for (const sub of subs) {
+        await expect(sub.getSize()).rejects.toThrow(/closed/);
+        await expect(collect(sub.getDocumentPaths())).rejects.toThrow(/closed/);
+        await expect(collect(sub.getDocumentBlocksRefs())).rejects.toThrow(/closed/);
+        await expect(collect(sub.getDocumentsBlocks())).rejects.toThrow(/closed/);
+      }
+    });
 
     it("re-adding a block replaces its vector", async () => {
       const { sub } = await open();

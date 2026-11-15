@@ -7,6 +7,7 @@ import type {
 import { getSubQuery, getSubResult, setSubQuery } from "@statewalker/indexer-api";
 import { getVectorConfig, setVectorConfig } from "./config.js";
 import type { VectorConfig, VectorIndex, VectorQuery, VectorResult } from "./types.js";
+import { VECTOR_TYPE } from "./types.js";
 
 /** User-facing typed bundle bound to one vector sub-index **name**. */
 export interface VectorAccess {
@@ -34,10 +35,16 @@ export function newVectorAccess(name: string): VectorAccess {
       if (!binding) {
         throw new Error(`No sub-index named "${name}" is registered on index "${index.name}"`);
       }
+      if (binding.type !== VECTOR_TYPE) {
+        throw new Error(
+          `Sub-index "${name}" on index "${index.name}" is of type "${binding.type}", not "${VECTOR_TYPE}"`,
+        );
+      }
       return binding.index as VectorIndex;
     },
     tryGet(index: Index): VectorIndex | undefined {
-      return index.getBinding(name)?.index as VectorIndex | undefined;
+      const binding = index.getBinding(name);
+      return binding?.type === VECTOR_TYPE ? (binding.index as VectorIndex) : undefined;
     },
     setConfig(params: CreateIndexParams, config: VectorConfig): void {
       setVectorConfig(params, name, config);

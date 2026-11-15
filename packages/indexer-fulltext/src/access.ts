@@ -7,6 +7,7 @@ import type {
 import { getSubQuery, getSubResult, setSubQuery } from "@statewalker/indexer-api";
 import { getFullTextConfig, setFullTextConfig } from "./config.js";
 import type { FullTextConfig, FullTextIndex, FulltextQuery, FulltextResult } from "./types.js";
+import { FULL_TEXT_TYPE } from "./types.js";
 
 /**
  * User-facing typed bundle bound to one sub-index **name**, returned by
@@ -50,10 +51,16 @@ export function newFullTextAccess(name: string): FullTextAccess {
       if (!binding) {
         throw new Error(`No sub-index named "${name}" is registered on index "${index.name}"`);
       }
+      if (binding.type !== FULL_TEXT_TYPE) {
+        throw new Error(
+          `Sub-index "${name}" on index "${index.name}" is of type "${binding.type}", not "${FULL_TEXT_TYPE}"`,
+        );
+      }
       return binding.index as FullTextIndex;
     },
     tryGet(index: Index): FullTextIndex | undefined {
-      return index.getBinding(name)?.index as FullTextIndex | undefined;
+      const binding = index.getBinding(name);
+      return binding?.type === FULL_TEXT_TYPE ? (binding.index as FullTextIndex) : undefined;
     },
     setConfig(params: CreateIndexParams, config: FullTextConfig): void {
       setFullTextConfig(params, name, config);

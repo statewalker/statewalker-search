@@ -93,4 +93,11 @@ describe("newVectorAccess(name)", () => {
     expect(a.getQuery(req)?.embeddings[0]?.[0]).toBe(1);
     expect(b.getQuery(req)?.embeddings[0]?.[0]).toBe(2);
   });
+
+  it("get throws and tryGet returns undefined when the binding is of another type", () => {
+    const index = fakeIndex();
+    index.setBinding({ name: "q", type: "other", config: {}, index: fakeVec() });
+    expect(() => newVectorAccess("q").get(index)).toThrow(/"other"/);
+    expect(newVectorAccess("q").tryGet(index)).toBeUndefined();
+  });
 });

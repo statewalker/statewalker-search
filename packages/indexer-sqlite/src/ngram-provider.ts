@@ -55,7 +55,9 @@ export function newSqliteNgramProvider(): SqliteModalityProvider<NgramConfig, Ng
       const storeKind = config.store ?? "fts5";
       const store = new NgramStore({ db, prefix: `${prefix}ng_`, store: storeKind });
       await store.init();
-      const list = newEnumeration(db, blockIds, `SELECT id FROM ${store.idTable}`);
+      const list = newEnumeration(db, blockIds, `SELECT id FROM ${store.idTable}`, () =>
+        ensureOpen(),
+      );
       let closed = false;
       const ensureOpen = () => {
         if (closed) throw new Error("NgramIndex is closed");
@@ -130,6 +132,7 @@ export function newSqliteNgramProvider(): SqliteModalityProvider<NgramConfig, Ng
         getDocumentBlocksRefs: (p?: DocumentPath) => list.refs(p),
 
         async *getDocumentsBlocks(p?: DocumentPath): AsyncGenerator<NgramBlock> {
+          ensureOpen();
           const entries = await list.entries(p);
           const texts = await store.getTexts(entries.map((e) => e.id));
           for (const e of entries) {
