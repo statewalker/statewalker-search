@@ -6,6 +6,7 @@ import type {
   Index,
   Indexer,
   IndexInfo,
+  Metadata,
 } from "@statewalker/indexer-api";
 import { createCompositeIndex, createSerialiser } from "@statewalker/indexer-core";
 import { type BlockIds, openBlockIds } from "./block-ids.js";
@@ -21,6 +22,8 @@ export interface SqliteIndexerOptions {
 type SubSpec = { type: string } & Record<string, unknown>;
 interface IndexManifest {
   subIndexes: Record<string, SubSpec>;
+  /** Index-level metadata from `createIndex` (absent in manifests written before it was saved). */
+  metadata?: Metadata;
 }
 
 const MANIFEST_TABLE = "__indexer_manifest";
@@ -85,6 +88,7 @@ export async function createSqliteIndexer(options: SqliteIndexerOptions): Promis
     name: string,
     subIndexes: Record<string, SubSpec>,
     options?: GetIndexOptions,
+    metadata?: Metadata,
   ): Promise<{ index: Index; effective: Record<string, SubSpec> }> {
     const onMissing = options?.onMissingProvider ?? "throw";
     const blockIds = await openBlockIds(db, `${indexPrefix(name)}blocks`);
@@ -123,6 +127,7 @@ export async function createSqliteIndexer(options: SqliteIndexerOptions): Promis
 
     const index: Index = createCompositeIndex({
       name,
+      metadata,
       bindings,
       // A closed instance leaves the cache, so getIndex opens a new one.
       onClose: async () => {
@@ -145,7 +150,9 @@ export async function createSqliteIndexer(options: SqliteIndexerOptions): Promis
   return {
     async getIndexNames(): Promise<IndexInfo[]> {
       ensureOpen();
-      return [...manifest.keys()].map((name) => ({ name }));
+      return [...manifest.entries()].map(([name, entry]) =>
+        entry.metadata !== undefined ? { name, metadata: entry.metadata } : { name },
+      );
     },
 
     createIndex(params: CreateIndexParams): Promise<Index> {
@@ -165,9 +172,11 @@ export async function createSqliteIndexer(options: SqliteIndexerOptions): Promis
           indexes.delete(name);
           await dropIndexTables(name, existing?.subIndexes ?? {});
         }
-        const { index, effective } = await openIndex(name, subIndexes);
-        await writeManifest(name, { subIndexes: effective });
-        if (metadata !== undefined) (index as { metadata?: unknown }).metadata = metadata;
+        const { index, effective } = await openIndex(name, subIndexes, undefined, metadata);
+        await writeManifest(name, {
+          subIndexes: effective,
+          ...(metadata !== undefined ? { metadata } : {}),
+        });
         indexes.set(name, index);
         return index;
       });
@@ -182,9 +191,14 @@ export async function createSqliteIndexer(options: SqliteIndexerOptions): Promis
         if (cached) return cached;
         const entry = manifest.get(name);
         if (!entry) return null;
-        const { index, effective } = await openIndex(name, entry.subIndexes, options);
+        const { index, effective } = await openIndex(
+          name,
+          entry.subIndexes,
+          options,
+          entry.metadata,
+        );
         if (JSON.stringify(effective) !== JSON.stringify(entry.subIndexes)) {
-          await writeManifest(name, { subIndexes: effective });
+          await writeManifest(name, { ...entry, subIndexes: effective });
         }
         indexes.set(name, index);
         return index;

@@ -168,6 +168,39 @@ export function runLifecycleConformanceSuite(name: string, options: LifecycleSui
       expect(await fts.get(reopened).getSize()).toBe(1);
     });
 
+    it("index metadata survives close and reopen, and getIndexNames returns it", async () => {
+      const metadata = { owner: "team-a", version: 2 };
+      const idx = await indexer.createIndex({
+        name: "a",
+        subIndexes: { q: fullTextConfig },
+        metadata,
+      });
+      expect(idx.metadata).toEqual(metadata);
+      await idx.close();
+
+      const reopened = defined(await indexer.getIndex("a"));
+      expect(reopened.metadata).toEqual(metadata);
+      expect(await indexer.getIndexNames()).toEqual([{ name: "a", metadata }]);
+    });
+
+    it("index metadata survives a save and reload", async () => {
+      const createWithPersistence = factory.createWithPersistence;
+      if (!createWithPersistence) return; // the backend stores everything in its database
+
+      const persistence = new MemoryPersistence();
+      const first = await createWithPersistence(persistence);
+      await first.createIndex({ name: "a", subIndexes: { q: fullTextConfig }, metadata: { k: 1 } });
+      await first.close();
+
+      const second = await createWithPersistence(persistence);
+      try {
+        expect(await second.getIndexNames()).toEqual([{ name: "a", metadata: { k: 1 } }]);
+        expect(defined(await second.getIndex("a")).metadata).toEqual({ k: 1 });
+      } finally {
+        await second.close();
+      }
+    });
+
     it("data written through concurrently opened handles survives a save and reload", async () => {
       const createWithPersistence = factory.createWithPersistence;
       if (!createWithPersistence) return; // the backend stores everything in its database

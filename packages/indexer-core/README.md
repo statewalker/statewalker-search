@@ -101,6 +101,10 @@ Names are passed through `sanitizePrefix`, which replaces every character outsid
 
 Both builders run `createIndex`, `getIndex`, `deleteIndex`, `flush` and `close` through `createSerialiser()`: each call waits for the previous one, so concurrent `getIndex` calls for one name open one instance. A failed call does not block the next.
 
+### Index metadata
+
+Both builders store `CreateIndexParams.metadata` in the index's manifest entry (an optional `metadata` field in its JSON), so `getIndex(name).metadata` and `getIndexNames()` return it after a reopen or reload. Manifests written before this have no `metadata` field and load as before; older versions reading a newer manifest ignore the field.
+
 ### Closing and deleting an index
 
 `index.close()` removes the instance from its indexer (the composite's `onClose` hook), so a later `getIndex` opens a new one. The provider-based builder first keeps the closed index's manifest and serialised sub-indexes in memory, so the reopened index has its data and the next save still writes it. `indexer.deleteIndex(name)` works on a closed index too, and both it and `index.deleteIndex()` drop every sub-index the manifest names, including those skipped at open. A reinit (`getIndex(name, { subIndexes: { sub: config } })`) checks that the new type is supported before dropping the old sub-index.
