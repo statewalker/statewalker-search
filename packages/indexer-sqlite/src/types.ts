@@ -1,5 +1,6 @@
 import type { Db } from "@statewalker/db-api";
 import type { ScoredHit, SearchIndex } from "@statewalker/indexer-api";
+import type { SqlModalityProvider } from "@statewalker/indexer-core";
 import type { BlockIds } from "./block-ids.js";
 
 export interface SqliteModalityContext {
@@ -12,15 +13,11 @@ export interface SqliteModalityContext {
 }
 
 /**
- * A modality backed by tables in one SQLite `Db`. Unlike `ModalityProvider`,
- * opening is async (tables are created, existing data is adopted) and the
- * provider can drop its tables without an open instance.
+ * A modality backed by tables in one SQLite `Db`: the SQL kernel's `SqlModalityProvider` over a
+ * SQLite context. Unlike `ModalityProvider`, opening is async (tables are created, existing data
+ * is adopted) and the provider can drop its tables without an open instance.
  */
-export interface SqliteModalityProvider<
+export type SqliteModalityProvider<
   C = unknown,
   I extends SearchIndex<unknown, unknown, ScoredHit> = SearchIndex<unknown, unknown, ScoredHit>,
-> {
-  readonly type: string;
-  open(ctx: SqliteModalityContext, config: C): Promise<I>;
-  drop(ctx: SqliteModalityContext): Promise<void>;
-}
+> = SqlModalityProvider<SqliteModalityContext, C, I>;
