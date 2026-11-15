@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { describe, expect, it } from "vitest";
 import { pdfExtractor } from "../../src/extractors/pdf-extractor.js";
 
@@ -91,5 +92,18 @@ startxref
     const pdfBytes = new TextEncoder().encode(pdf);
     const result = await pdfExtractor([pdfBytes]);
     expect(result).toBe("");
+  });
+
+  it("accepts a Node Buffer", async () => {
+    const result = await pdfExtractor([Buffer.from(createMinimalPdf())]);
+    expect(result).toContain("Hello PDF World");
+  });
+
+  it("leaves the caller's bytes intact, so they can be extracted again", async () => {
+    const pdfBytes = createMinimalPdf();
+    const length = pdfBytes.byteLength;
+    await pdfExtractor([pdfBytes]);
+    expect(pdfBytes.byteLength).toBe(length);
+    expect(await pdfExtractor([pdfBytes])).toContain("Hello PDF World");
   });
 });
