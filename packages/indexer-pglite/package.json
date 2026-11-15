@@ -48,6 +48,7 @@
     "@statewalker/indexer-vector": "workspace:^"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "catalog:",
     "@electric-sql/pglite-pgvector": "catalog:",
     "@statewalker/db-pglite": "catalog:",
     "@statewalker/indexer-tests": "workspace:^",
