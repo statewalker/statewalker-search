@@ -90,7 +90,6 @@ Packages are published to npm from CI with changesets. After CI passes on `main`
 | `packages/*` | Workspace packages |
 | `pnpm-workspace.yaml` | Workspace globs and the dependency catalog |
 | `biome.json` | Lint and format rules |
-| `turbo.json` | Task graph |
 
 ## License
 
