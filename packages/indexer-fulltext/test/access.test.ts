@@ -103,4 +103,11 @@ describe("newFullTextAccess(name)", () => {
     expect(enFts.getQuery(req)).toEqual({ queries: ["hello"] });
     expect(frFts.getQuery(req)).toEqual({ queries: ["bonjour"] });
   });
+
+  it("get throws and tryGet returns undefined when the binding is of another type", () => {
+    const index = fakeIndex();
+    index.setBinding({ name: "q", type: "other", config: {}, index: fakeFts() });
+    expect(() => newFullTextAccess("q").get(index)).toThrow(/"other"/);
+    expect(newFullTextAccess("q").tryGet(index)).toBeUndefined();
+  });
 });
