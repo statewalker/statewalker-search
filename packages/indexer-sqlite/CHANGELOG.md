@@ -1,5 +1,15 @@
 # @statewalker/indexer-sqlite
 
+## 0.1.1
+
+### Patch Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/indexer-core ^0.1.2 -> ^0.1.3
+  - @statewalker/indexer-fulltext ^0.1.3 -> ^0.1.4
+  - @statewalker/indexer-vector ^0.1.3 -> ^0.1.4
+
 ## 0.1.0
 
 ### Minor Changes
