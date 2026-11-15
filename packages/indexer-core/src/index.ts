@@ -27,7 +27,7 @@ export { matchesPrefix } from "./path-prefix.js";
 export { readEntryBytes, singleChunk, toBytes } from "./persistence-bytes.js";
 export { type RankedList, reciprocalRankFusion } from "./rrf.js";
 export { createSerialiser } from "./run-exclusive.js";
-export { sanitizePrefix } from "./sanitize-prefix.js";
+export { legacySanitizePrefix, sanitizePrefix } from "./sanitize-prefix.js";
 export type { SqlDb } from "./sql-db.js";
 export {
   buildPathPrefixesSql,
@@ -42,9 +42,13 @@ export {
   type SearchFilterSql,
 } from "./sql-search.js";
 export {
+  legacySqlTableNaming,
+  SQL_MAX_INDEX_PREFIX,
+  SQL_MAX_SUB_INDEX_PREFIX,
+  type SqlTableNaming,
   sqlDocsTableName,
   sqlFtsTableName,
-  sqlSubIndexPrefix,
+  sqlTableNaming,
   sqlVectorIndexName,
   sqlVectorTableName,
 } from "./sql-table-names.js";

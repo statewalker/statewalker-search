@@ -8,8 +8,8 @@
 //
 // Multi-instance: two FTS sub-indexes (or two vector sub-indexes) on one Index
 // is supported; each gets its own per-sub-index table named
-// `idx_<indexPrefix>_<subPrefix>_(fts|vec)`. All share the same per-Index docs
-// table for FK reclamation.
+// `idx_<subPrefix>_(fts|vec)` (`sql-table-names.ts`). All share the same per-Index
+// docs table for FK reclamation.
 //
 // Not Provider-based (per D10 in the design): the shared "docs table with FK
 // reclamation" pattern is SQL-specific and doesn't fit the
@@ -36,12 +36,13 @@ import { createSqlFtsRetriever } from "./create-sql-fts-retriever.js";
 import type { SqlVectorDialect } from "./create-sql-vector-retriever.js";
 import { createSqlVectorRetriever } from "./create-sql-vector-retriever.js";
 import { createSerialiser } from "./run-exclusive.js";
-import { sanitizePrefix } from "./sanitize-prefix.js";
 import type { SqlDb } from "./sql-db.js";
 import {
+  legacySqlTableNaming,
+  type SqlTableNaming,
   sqlDocsTableName,
   sqlFtsTableName,
-  sqlSubIndexPrefix,
+  sqlTableNaming,
   sqlVectorIndexName,
   sqlVectorTableName,
 } from "./sql-table-names.js";
@@ -72,6 +73,25 @@ export interface SqlIndexerOptions {
   dialect: SqlBackedDialect;
   /** Optional finaliser invoked by `indexer.close()` — backends that own their `db` close it here. */
   onClose?(): Promise<void>;
+  /**
+   * The naming scheme for new tables. Defaults to `sqlTableNaming`; tables an earlier version
+   * created under `legacySqlTableNaming` are still found. Tests pass `legacySqlTableNaming` to
+   * write a database the way earlier versions did.
+   */
+  tableNaming?: SqlTableNaming;
+}
+
+/** The resolved table prefixes of one Index: its own and those of its sub-indexes. */
+interface IndexTables {
+  prefix: string;
+  docsTable: string;
+  /** Sub-index name -> table prefix, for sub-indexes of a known type. */
+  subPrefixes: Map<string, string>;
+}
+
+/** Postgres folds unquoted identifiers to lower case and cuts them to 63 bytes; DuckDB folds. */
+function identifierKey(identifier: string): string {
+  return identifier.toLowerCase().slice(0, 63);
 }
 
 /** Persisted manifest entry for one Index. */
@@ -80,12 +100,21 @@ interface IndexManifest {
   subIndexes: Record<string, { type: string } & Record<string, unknown>>;
   /** Index-level metadata from `createIndex` (absent in manifests written before it was saved). */
   metadata?: Metadata;
+  /**
+   * `2` when the Index was created under the current naming scheme (`sqlTableNaming`): its tables
+   * are never looked up under the earlier scheme, whose names can be another Index's tables
+   * (`Notes` there folds to `notes`). Absent for Indexes created by earlier versions.
+   */
+  tableNaming?: 2;
 }
 
 const MANIFEST_TABLE = "__indexer_manifest";
 
 export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer> {
   const { db, dialect, onClose } = opts;
+  const naming = opts.tableNaming ?? sqlTableNaming;
+  // The earlier versions' scheme, to find the tables they created (none when writing under it).
+  const legacyNaming = naming === legacySqlTableNaming ? undefined : legacySqlTableNaming;
   const indexes = new Map<string, Index>();
   const manifest = new Map<string, IndexManifest>();
   const runExclusive = createSerialiser();
@@ -113,6 +142,98 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     if (closed) throw new Error("Indexer is closed");
   }
 
+  async function tableExists(table: string): Promise<boolean> {
+    try {
+      await db.query(`SELECT 1 FROM ${table} LIMIT 1`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The table of a sub-index of a known type, or undefined for other types. */
+  function subIndexTable(type: string, subPrefix: string): string | undefined {
+    if (type === FULL_TEXT_TYPE) return sqlFtsTableName(subPrefix);
+    if (type === VECTOR_TYPE) return sqlVectorTableName(subPrefix);
+    return undefined;
+  }
+
+  /**
+   * The current prefix, unless only the earlier versions' prefix has its table: then that one, so
+   * databases written by earlier versions keep opening (no data is moved).
+   */
+  async function resolvePrefix(
+    current: string,
+    earlier: string | undefined,
+    tableOf: (prefix: string) => string,
+  ): Promise<string> {
+    if (earlier === undefined || earlier === current) return current;
+    if (await tableExists(tableOf(current))) return current;
+    if (await tableExists(tableOf(earlier))) return earlier;
+    return current;
+  }
+
+  /** The prefixes of an existing Index's tables, under whichever scheme created them. */
+  async function resolveTables(
+    name: string,
+    subIndexes: Record<string, { type: string } & Record<string, unknown>>,
+  ): Promise<IndexTables> {
+    // Only an Index created by an earlier version may have tables under the earlier scheme.
+    const legacy = manifest.get(name)?.tableNaming === 2 ? undefined : legacyNaming;
+    const prefix = await resolvePrefix(
+      naming.indexPrefix(name),
+      legacy?.indexPrefix(name),
+      sqlDocsTableName,
+    );
+    const subPrefixes = new Map<string, string>();
+    for (const [subName, spec] of Object.entries(subIndexes)) {
+      if (spec.type !== FULL_TEXT_TYPE && spec.type !== VECTOR_TYPE) continue;
+      const sp = await resolvePrefix(
+        naming.subIndexPrefix(name, subName),
+        legacy?.subIndexPrefix(name, subName),
+        (p) => subIndexTable(spec.type, p) as string,
+      );
+      subPrefixes.set(subName, sp);
+    }
+    return { prefix, docsTable: sqlDocsTableName(prefix), subPrefixes };
+  }
+
+  /**
+   * Refuse a new Index whose tables already exist as the tables of another Index created by an
+   * earlier version (whose scheme kept upper case and did not bound lengths, so `Notes` there
+   * names the tables of `notes` here): sharing them would mix and later destroy both.
+   */
+  async function assertNoEarlierVersionCollision(
+    name: string,
+    subIndexes: Record<string, { type: string } & Record<string, unknown>>,
+  ): Promise<void> {
+    const legacy = legacyNaming;
+    if (!legacy) return;
+    const ours = new Map<string, string>();
+    const own = (table: string) => ours.set(identifierKey(table), table);
+    own(sqlDocsTableName(naming.indexPrefix(name)));
+    for (const [subName, spec] of Object.entries(subIndexes)) {
+      const table = subIndexTable(spec.type, naming.subIndexPrefix(name, subName));
+      if (table) own(table);
+    }
+    for (const [other, entry] of manifest) {
+      if (other === name) continue;
+      const theirs = [sqlDocsTableName(legacy.indexPrefix(other))];
+      for (const [subName, spec] of Object.entries(entry.subIndexes)) {
+        const table = subIndexTable(spec.type, legacy.subIndexPrefix(other, subName));
+        if (table) theirs.push(table);
+      }
+      for (const table of theirs) {
+        const mine = ours.get(identifierKey(table));
+        if (mine && (await tableExists(mine))) {
+          throw new Error(
+            `Cannot create index "${name}": its table ${mine} is already used by index "${other}", created by an earlier version whose table names fold upper case and cut long names. Delete or rename "${other}" first.`,
+          );
+        }
+      }
+    }
+  }
+
   /** Evict and close the open instance of an Index, if any. */
   async function closeLive(name: string): Promise<void> {
     const live = indexes.get(name);
@@ -130,12 +251,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
     return sqlDocsTableName(prefix);
   }
 
-  async function dropSubIndexTables(
-    indexPrefix: string,
-    subName: string,
-    spec: { type: string },
-  ): Promise<void> {
-    const sp = sqlSubIndexPrefix(indexPrefix, subName);
+  async function dropSubIndexTables(sp: string, spec: { type: string }): Promise<void> {
     if (spec.type === FULL_TEXT_TYPE) {
       const tableName = sqlFtsTableName(sp);
       if (dialect.fts.drop) await dialect.fts.drop({ db, tableName });
@@ -147,26 +263,28 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
   }
 
   async function dropIndexTables(
-    indexPrefix: string,
+    tables: IndexTables,
     subEntries: Record<string, { type: string } & Record<string, unknown>>,
   ): Promise<void> {
     // Drop each sub-index's table first, then the shared docs table, then any extras.
     for (const [subName, spec] of Object.entries(subEntries)) {
-      await dropSubIndexTables(indexPrefix, subName, spec);
+      const sp = tables.subPrefixes.get(subName);
+      if (sp !== undefined) await dropSubIndexTables(sp, spec);
     }
-    await db.exec(`DROP TABLE IF EXISTS ${sqlDocsTableName(indexPrefix)}`);
+    await db.exec(`DROP TABLE IF EXISTS ${tables.docsTable}`);
     if (dialect.extraCleanup) {
-      for (const stmt of dialect.extraCleanup(indexPrefix)) await db.exec(stmt);
+      for (const stmt of dialect.extraCleanup(tables.prefix)) await db.exec(stmt);
     }
   }
 
   /**
-   * Build the bindings for an Index from its manifest subIndexes spec.
-   * `applyLoadActions` switches between createIndex flow and getIndex flow.
+   * Build the bindings for an Index from its manifest subIndexes spec. `options` carries the load
+   * actions of the getIndex flow. `tables.subPrefixes` holds the resolved prefixes of existing
+   * sub-indexes; new and reinitialised ones get the current scheme's prefix, recorded there.
    */
   async function buildBindings(
-    indexPrefix: string,
-    docsTable: string,
+    name: string,
+    tables: IndexTables,
     subIndexes: Record<string, { type: string } & Record<string, unknown>>,
     options?: GetIndexOptions,
   ): Promise<{
@@ -221,9 +339,13 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
       }
 
       // Reinit: drop the existing tables for this sub-index; they are recreated below.
-      if (reinit) await dropSubIndexTables(indexPrefix, subName, savedSpec);
+      const savedPrefix = tables.subPrefixes.get(subName);
+      if (reinit && savedPrefix !== undefined) await dropSubIndexTables(savedPrefix, savedSpec);
 
-      const sp = sqlSubIndexPrefix(indexPrefix, subName);
+      const sp =
+        reinit || savedPrefix === undefined ? naming.subIndexPrefix(name, subName) : savedPrefix;
+      tables.subPrefixes.set(subName, sp);
+      const docsTable = tables.docsTable;
       effectiveSpec[subName] = { type: effType, ...effConfig };
 
       if (effType === FULL_TEXT_TYPE) {
@@ -272,30 +394,29 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
 
   /** The tables of the sub-indexes of known types in a manifest spec. */
   function subIndexTables(
-    indexPrefix: string,
+    tables: IndexTables,
     subIndexes: Record<string, { type: string } & Record<string, unknown>>,
   ): string[] {
-    const tables: string[] = [];
+    const result: string[] = [];
     for (const [subName, spec] of Object.entries(subIndexes)) {
-      const sp = sqlSubIndexPrefix(indexPrefix, subName);
-      if (spec.type === FULL_TEXT_TYPE) tables.push(sqlFtsTableName(sp));
-      else if (spec.type === VECTOR_TYPE) tables.push(sqlVectorTableName(sp));
+      const sp = tables.subPrefixes.get(subName);
+      const table = sp === undefined ? undefined : subIndexTable(spec.type, sp);
+      if (table) result.push(table);
     }
-    return tables;
+    return result;
   }
 
   /** Drop every table of an Index named in its manifest entry, and the entry itself. */
   async function deleteIndexData(name: string): Promise<void> {
-    const entry = manifest.get(name);
-    await dropIndexTables(sanitizePrefix(name), entry?.subIndexes ?? {});
+    const subIndexes = manifest.get(name)?.subIndexes ?? {};
+    await dropIndexTables(await resolveTables(name, subIndexes), subIndexes);
     await db.query(`DELETE FROM ${MANIFEST_TABLE} WHERE name = $1`, [name]);
     manifest.delete(name);
   }
 
   function buildCompositeWithHooks(
     name: string,
-    indexPrefix: string,
-    docsTable: string,
+    tables: IndexTables,
     bindings: AnySubIndexBinding[],
     metadata: Metadata | undefined,
   ): Index {
@@ -319,7 +440,8 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
         // more. Enumerate the tables of every sub-index in the manifest, not only
         // the open bindings: a sub-index skipped at open (or under "warn") keeps
         // its rows, which still reference their doc rows.
-        const subTables = subIndexTables(indexPrefix, manifest.get(name)?.subIndexes ?? {});
+        const subTables = subIndexTables(tables, manifest.get(name)?.subIndexes ?? {});
+        const docsTable = tables.docsTable;
         if (subTables.length === 0) {
           await db.exec(`DELETE FROM ${docsTable}`);
           return;
@@ -355,13 +477,19 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
           await deleteIndexData(name);
         }
 
-        const indexPrefix = sanitizePrefix(name);
-        const docsTable = await createDocsTable(indexPrefix);
+        await assertNoEarlierVersionCollision(name, subIndexes);
+        const prefix = naming.indexPrefix(name);
+        const tables: IndexTables = {
+          prefix,
+          docsTable: await createDocsTable(prefix),
+          subPrefixes: new Map(),
+        };
 
-        const { bindings, effectiveSpec } = await buildBindings(indexPrefix, docsTable, subIndexes);
+        const { bindings, effectiveSpec } = await buildBindings(name, tables, subIndexes);
 
         const entry: IndexManifest = {
           subIndexes: effectiveSpec,
+          ...(legacyNaming ? { tableNaming: 2 as const } : {}),
           ...(metadata !== undefined ? { metadata } : {}),
         };
         await db.query(`INSERT INTO ${MANIFEST_TABLE} (name, config) VALUES ($1, $2)`, [
@@ -369,7 +497,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
           JSON.stringify(entry),
         ]);
 
-        const index = buildCompositeWithHooks(name, indexPrefix, docsTable, bindings, metadata);
+        const index = buildCompositeWithHooks(name, tables, bindings, metadata);
         indexes.set(name, index);
         manifest.set(name, entry);
         return index;
@@ -387,12 +515,12 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
         const entry = manifest.get(name);
         if (!entry) return null;
 
-        const indexPrefix = sanitizePrefix(name);
-        const docsTable = await createDocsTable(indexPrefix);
+        const tables = await resolveTables(name, entry.subIndexes);
+        await createDocsTable(tables.prefix);
 
         const { bindings, effectiveSpec } = await buildBindings(
-          indexPrefix,
-          docsTable,
+          name,
+          tables,
           entry.subIndexes,
           options,
         );
@@ -407,13 +535,7 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
           ]);
         }
 
-        const index = buildCompositeWithHooks(
-          name,
-          indexPrefix,
-          docsTable,
-          bindings,
-          entry.metadata,
-        );
+        const index = buildCompositeWithHooks(name, tables, bindings, entry.metadata);
         indexes.set(name, index);
         return index;
       });

@@ -14,7 +14,7 @@ import { vector } from "@electric-sql/pglite-pgvector";
 import type { Db } from "@statewalker/db-api";
 import { newPgliteDb } from "@statewalker/db-pglite";
 import type { DocumentPath, Index, IndexerPersistence } from "@statewalker/indexer-api";
-import { sanitizePrefix } from "@statewalker/indexer-core";
+import { createSqlIndexer, legacySqlTableNaming, sqlTableNaming } from "@statewalker/indexer-core";
 import type { FulltextQuery } from "@statewalker/indexer-fulltext";
 import { newFullTextAccess } from "@statewalker/indexer-fulltext";
 import {
@@ -24,10 +24,12 @@ import {
   runLifecycleConformanceSuite,
   runMultiInstanceConformanceSuite,
   runRrfBlendingSuite,
+  runSqlTableNamesSuite,
 } from "@statewalker/indexer-tests";
 import type { VectorQuery } from "@statewalker/indexer-vector";
 import { newVectorAccess } from "@statewalker/indexer-vector";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { pgliteDialect } from "../src/dialect.js";
 import { createPGLiteIndexer } from "../src/pglite-indexer.js";
 
 const openDbs: Db[] = [];
@@ -139,7 +141,7 @@ describe("PGLite Indexer — docs-table reclamation", () => {
   });
 
   async function countDocsRows(indexName: string): Promise<number> {
-    const prefix = sanitizePrefix(indexName);
+    const prefix = sqlTableNaming.indexPrefix(indexName);
     const rows = await db.query<{ cnt: number | bigint }>(
       `SELECT COUNT(*)::int AS cnt FROM idx_${prefix}_docs`,
     );
@@ -273,4 +275,17 @@ describe("PGLite FTS — words with combining marks", () => {
       await factory.cleanup();
     }
   });
+});
+
+runSqlTableNamesSuite("PGLite Indexer", {
+  newDb: () => newPgliteDb({ extensions: { vector } }),
+  closeDb: (db) => db.close(),
+  createIndexer: (db) => createPGLiteIndexer({ db }),
+  createLegacyIndexer: (db) =>
+    createSqlIndexer({ db, dialect: pgliteDialect, tableNaming: legacySqlTableNaming }),
+  dropTable: async (db, table) => {
+    await db.query(`DROP TABLE ${table}`);
+  },
+  fullTextConfig: ftConfig,
+  vectorConfig: vecConfig,
 });
