@@ -36,6 +36,8 @@ export interface PersistenceBackedIndexerOptions {
 interface IndexManifest {
   name: string;
   subIndexes: Record<string, { type: string } & Record<string, unknown>>;
+  /** Index-level metadata from `createIndex` (absent in manifests written before it was saved). */
+  metadata?: Metadata;
 }
 
 const TOP_MANIFEST = "__manifest__";
@@ -176,7 +178,11 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
     const savedSubs = savedSubEntries.get(indexName);
 
     // Compose manifest from live bindings + preserved skipped configs.
-    const manifest: IndexManifest = { name: indexName, subIndexes: {} };
+    const manifest: IndexManifest = {
+      name: indexName,
+      subIndexes: {},
+      ...(live.metadata !== undefined ? { metadata: live.metadata } : {}),
+    };
     const subs = new Map<string, Map<string, Uint8Array>>();
     for (const b of live.getBindings()) {
       manifest.subIndexes[b.name] = { type: b.type, ...(b.config as Record<string, unknown>) };
@@ -305,7 +311,7 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
 
     if (skipped.size > 0) skippedSubsPerIndex.set(name, skipped);
     else skippedSubsPerIndex.delete(name);
-    return newComposite(name, bindings);
+    return newComposite(name, bindings, manifest.metadata);
   }
 
   /**
@@ -354,7 +360,11 @@ export function createPersistenceBackedIndexer(opts: PersistenceBackedIndexerOpt
     async getIndexNames(): Promise<IndexInfo[]> {
       ensureOpen();
       await ensureInitialized();
-      return [...knownNames].map((name) => ({ name }));
+      const names = new Set([...knownNames, ...liveIndexes.keys()]);
+      return [...names].map((name) => {
+        const metadata = liveIndexes.get(name)?.metadata ?? savedManifests.get(name)?.metadata;
+        return metadata !== undefined ? { name, metadata } : { name };
+      });
     },
 
     createIndex(params: CreateIndexParams): Promise<Index> {
