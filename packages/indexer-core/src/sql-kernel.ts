@@ -53,6 +53,8 @@ export interface SqlKernelSubIndex<Ctx> {
 /** An Index's manifest entry as saved: its sub-index specs, metadata and storage fields. */
 export type SavedIndex = Readonly<Record<string, unknown>> & {
   readonly subIndexes: Record<string, SubIndexSpec>;
+  /** Sub-index name -> its recorded doc-referencing tables (`SqlKernelStorage.docTables`). */
+  readonly docTables?: Readonly<Record<string, string[]>>;
 };
 
 /** Where a SQL kernel keeps its manifest and the tables of each Index. */
@@ -93,10 +95,23 @@ export interface SqlKernelStorage<Shared, Ctx> {
     others: ReadonlyMap<string, Record<string, SubIndexSpec>>,
   ): Promise<void>;
   /**
-   * After `deleteDocuments` on an open Index, with every sub-index in its manifest that has a
-   * provider, skipped ones included (they keep their rows).
+   * The tables of a sub-index at `ctx` that reference the shared table, for a type with a
+   * provider. The kernel records them in the Index's manifest entry (`docTables`), so that
+   * `afterDelete` can count them while the sub-index's provider is missing.
    */
-  afterDelete?(shared: Shared, subIndexes: SqlKernelSubIndex<Ctx>[]): Promise<void>;
+  docTables?(type: string, ctx: Ctx): string[];
+  /**
+   * After `deleteDocuments` on an open Index, with every sub-index in its manifest that has a
+   * provider, skipped ones included (they keep their rows), and `recordedTables`: the tables
+   * recorded (`docTables`) for the manifest's sub-indexes that have no provider, which keep
+   * their rows too. Not called when such a sub-index has no record (a manifest entry written
+   * before the record existed): its rows cannot be accounted for, so nothing is reclaimed.
+   */
+  afterDelete?(
+    shared: Shared,
+    subIndexes: SqlKernelSubIndex<Ctx>[],
+    recordedTables: string[],
+  ): Promise<void>;
   /** Called by `indexer.close()` once every open Index is closed. */
   close?(): Promise<void>;
 }
@@ -112,6 +127,13 @@ interface IndexManifest {
   subIndexes: Record<string, SubIndexSpec>;
   /** Index-level metadata from `createIndex` (absent in manifests written before it was saved). */
   metadata?: Metadata;
+  /**
+   * Sub-index name -> the tables it keeps that reference the shared table
+   * (`SqlKernelStorage.docTables`). Written with the entry; kept for a sub-index whose provider
+   * is missing. Absent in entries written before it was recorded, and for storages without
+   * `docTables`.
+   */
+  docTables?: Record<string, string[]>;
   /** Storage fields (`SqlKernelStorage.manifestFields`), kept through rewrites. */
   [field: string]: unknown;
 }
@@ -200,7 +222,12 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
     saved: SavedIndex | undefined,
     options: GetIndexOptions | undefined,
     metadata: Metadata | undefined,
-  ): Promise<{ index: Index; effective: Record<string, SubIndexSpec>; changed: boolean }> {
+  ): Promise<{
+    index: Index;
+    effective: Record<string, SubIndexSpec>;
+    changed: boolean;
+    docTables: Record<string, string[]> | undefined;
+  }> {
     // Throws for a missing provider before any table is touched.
     const { plans, effective, changed } = planLoad(name, subIndexes, options, providers);
     const tables = await openTables(name, subIndexes, saved);
@@ -225,6 +252,21 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
       bindings.push({ name: plan.name, type, config, index: await provider.open(ctx, config) });
     }
 
+    // The doc-referencing tables of every sub-index in the effective spec: from its context when
+    // its type has a provider, otherwise as recorded before (if at all).
+    let docTables: Record<string, string[]> | undefined;
+    if (storage.docTables) {
+      docTables = {};
+      for (const [subName, spec] of Object.entries(effective)) {
+        const ctx = tables.contexts.get(subName);
+        const recorded =
+          ctx !== undefined && providers.has(spec.type)
+            ? storage.docTables(spec.type, ctx)
+            : saved?.docTables?.[subName];
+        if (recorded !== undefined) docTables[subName] = recorded;
+      }
+    }
+
     const index: Index = createCompositeIndex({
       name,
       metadata,
@@ -241,18 +283,26 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
       },
       onAfterDelete: storage.afterDelete
         ? async () => {
+            const entry = manifest.get(name);
             const subs: SqlKernelSubIndex<Ctx>[] = [];
-            for (const [subName, spec] of Object.entries(manifest.get(name)?.subIndexes ?? {})) {
+            const recordedTables: string[] = [];
+            for (const [subName, spec] of Object.entries(entry?.subIndexes ?? {})) {
               const ctx = tables.contexts.get(subName);
               if (ctx !== undefined && providers.has(spec.type)) {
                 subs.push({ name: subName, type: spec.type, ctx });
+                continue;
               }
+              // No provider: its rows still reference doc rows. Count its recorded tables; with
+              // no record (an entry from before it was kept), skip the sweep altogether.
+              const recorded = entry?.docTables?.[subName];
+              if (recorded === undefined) return;
+              recordedTables.push(...recorded);
             }
-            await storage.afterDelete?.(tables.shared, subs);
+            await storage.afterDelete?.(tables.shared, subs, recordedTables);
           }
         : undefined,
     });
-    return { index, effective, changed };
+    return { index, effective, changed, docTables };
   }
 
   return {
@@ -280,7 +330,7 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
           }
           await storage.beforeCreate(name, subIndexes, others);
         }
-        const { index, effective } = await openIndex(
+        const { index, effective, docTables } = await openIndex(
           name,
           subIndexes,
           undefined,
@@ -290,6 +340,7 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
         await writeManifest(name, {
           ...storage.manifestFields?.(),
           subIndexes: effective,
+          ...(docTables !== undefined ? { docTables } : {}),
           ...(metadata !== undefined ? { metadata } : {}),
         });
         indexes.set(name, index);
@@ -306,16 +357,23 @@ export async function createSqlKernelIndexer<Shared, Ctx>(
         if (cached) return cached;
         const entry = manifest.get(name);
         if (!entry) return null;
-        const { index, effective, changed } = await openIndex(
+        const { index, effective, changed, docTables } = await openIndex(
           name,
           entry.subIndexes,
           entry,
           options,
           entry.metadata,
         );
-        // Load actions that changed the spec (reinit) are saved.
-        if (changed) {
-          await writeManifest(name, { ...entry, subIndexes: effective });
+        // Load actions that changed the spec (reinit) are saved, and so is a changed record of
+        // the doc-referencing tables (an entry written before it was kept gains it here).
+        const tablesChanged =
+          docTables !== undefined && JSON.stringify(docTables) !== JSON.stringify(entry.docTables);
+        if (changed || tablesChanged) {
+          await writeManifest(name, {
+            ...entry,
+            subIndexes: effective,
+            ...(docTables !== undefined ? { docTables } : {}),
+          });
         }
         indexes.set(name, index);
         return index;

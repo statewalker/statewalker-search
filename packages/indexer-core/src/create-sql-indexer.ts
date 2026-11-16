@@ -320,12 +320,20 @@ export async function createSqlIndexer(opts: SqlIndexerOptions): Promise<Indexer
       }
     },
 
+    // Recorded in each manifest entry, so the sweep counts a sub-index whose provider is missing.
+    docTables: (type, ctx) => providers.get(type)?.docTables(ctx) ?? [],
+
     // Reclaim doc rows no sub-index table references any more. Every sub-index in the manifest
-    // counts, skipped ones too: they keep their rows, which still reference their doc rows.
-    async afterDelete(docs, subIndexes) {
+    // counts, skipped ones too: they keep their rows, which still reference their doc rows. So do
+    // the sub-indexes without a provider, through their recorded tables (a recorded table that
+    // no longer exists references nothing).
+    async afterDelete(docs, subIndexes, recordedTables) {
       const tables: string[] = [];
       for (const { type, ctx } of subIndexes) {
         tables.push(...(providers.get(type)?.docTables(ctx) ?? []));
+      }
+      for (const table of recordedTables ?? []) {
+        if (!tables.includes(table) && (await tableExists(table))) tables.push(table);
       }
       if (tables.length === 0) {
         await db.exec(`DELETE FROM ${docs.table}`);
