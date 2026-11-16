@@ -1,5 +1,21 @@
 # @statewalker/indexer-mem-flexsearch
 
+## 0.5.0
+
+### Minor Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/indexer-core crosses a breaking line
+  - @statewalker/indexer-mem crosses a breaking line
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [bdd60b1]
+  - @statewalker/indexer-mem@0.5.0
+  - @statewalker/indexer-core@0.4.0
+
 ## 0.4.0
 
 ### Minor Changes
