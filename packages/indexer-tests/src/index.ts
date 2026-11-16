@@ -40,6 +40,9 @@ export { runRrfBlendingSuite } from "./conformance/rrf-blending.suite.js";
 export type { SqlNgramSuiteOptions } from "./conformance/sql-ngram.suite.js";
 export { runSqlNgramSuite } from "./conformance/sql-ngram.suite.js";
 
+export type { SqlOrphanSweepSuiteOptions } from "./conformance/sql-orphan-sweep.suite.js";
+export { runSqlOrphanSweepSuite } from "./conformance/sql-orphan-sweep.suite.js";
+
 export type { SqlTableNamesSuiteOptions } from "./conformance/sql-table-names.suite.js";
 export { runSqlTableNamesSuite } from "./conformance/sql-table-names.suite.js";
 

@@ -35,6 +35,7 @@ import {
   runNgramConformanceSuite,
   runRrfBlendingSuite,
   runSqlNgramSuite,
+  runSqlOrphanSweepSuite,
   runSqlTableNamesSuite,
 } from "@statewalker/indexer-tests";
 import type { VectorQuery } from "@statewalker/indexer-vector";
@@ -499,3 +500,25 @@ async function collectWithSummary<T, S extends { truncated: boolean } | undefine
     hits.push(step.value);
   }
 }
+
+// =============================================================================
+// Orphan sweep with a provider missing (statewalker-search#90).
+// =============================================================================
+
+runSqlOrphanSweepSuite("DuckDB Indexer", {
+  newDb: () => newNodeDuckDb(),
+  closeDb: (db) => db.close(),
+  createIndexer: (db, { ngram }) =>
+    createSqlIndexer({
+      db: wrapDbAsSqlDb(db),
+      dialect: ngram ? duckdbDialect : { ...duckdbDialect, ngram: undefined },
+    }),
+  query: (db, sql) => db.query(sql),
+  recordsDocTables: true,
+  countDocRows: async (db, indexName) => {
+    const rows = await db.query<{ cnt: number | bigint }>(
+      `SELECT COUNT(*) AS cnt FROM ${sqlDocsTableName(sqlTableNaming.indexPrefix(indexName))}`,
+    );
+    return Number(rows[0]?.cnt ?? 0);
+  },
+});

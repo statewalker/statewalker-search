@@ -98,7 +98,7 @@ idx_<index>_<sub>_fts                        one table per full-text sub-index
 idx_<index>_<sub>_vec                        one table per vector sub-index
 ```
 
-Both SQL indexers are the SQL kernel (`createSqlKernelIndexer`) over a storage: the manifest table, the load actions and the delete rules are one module; `createSqlIndexer` supplies the docs table, the orphan sweep after deletes (every sub-index in the manifest counts, skipped ones too) and the full-text and vector providers from the dialect.
+Both SQL indexers are the SQL kernel (`createSqlKernelIndexer`) over a storage: the manifest table, the load actions and the delete rules are one module; `createSqlIndexer` supplies the docs table, the orphan sweep after deletes (every sub-index in the manifest counts, skipped ones too, and so does one whose modality has no provider, through the doc-referencing tables its manifest entry records; an older entry without that record makes the sweep skip itself while such a sub-index is present) and the full-text and vector providers from the dialect.
 
 Names are passed through `sanitizePrefix`, which replaces every character outside `[a-z0-9]` with `_<charCode>_`, so any index or sub-index name gives a valid SQL identifier. Upper-case letters are escaped too, because Postgres and DuckDB fold unquoted identifiers to lower case (`Notes` and `notes` must not share tables). Postgres cuts identifiers to 63 bytes, so an index prefix longer than 50 characters, or a sub-index prefix (`<index>_<sub>`) longer than 47, is cut and given a 12-digit hash of the full names (`sqlTableNaming`); every derived name then fits.
 
