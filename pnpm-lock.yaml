@@ -26,22 +26,22 @@ catalogs:
       version: 0.1.7
     '@statewalker/db-duckdb-node':
       specifier: ^0.2.0
-      version: 0.2.0
+      version: 0.2.1
     '@statewalker/db-pglite':
       specifier: ^0.3.0
-      version: 0.3.0
+      version: 0.3.1
     '@statewalker/db-sqlite':
       specifier: ^0.1.0
-      version: 0.1.3
+      version: 0.1.4
     '@statewalker/db-sqlite-do':
       specifier: ^0.1.0
-      version: 0.1.3
+      version: 0.1.4
     '@statewalker/db-sqlite-index':
       specifier: ^0.1.0
-      version: 0.1.3
+      version: 0.1.4
     '@statewalker/db-sqlite-node':
       specifier: ^0.3.0
-      version: 0.3.3
+      version: 0.3.4
     '@types/node':
       specifier: ^26.6.4
       version: 26.6.4
@@ -188,7 +188,7 @@ importers:
     dependencies:
       '@statewalker/db-sqlite-index':
         specifier: 'catalog:'
-        version: 0.1.3
+        version: 0.1.4
       '@statewalker/indexer-api':
         specifier: workspace:^
         version: link:../indexer-api
@@ -235,7 +235,7 @@ importers:
     devDependencies:
       '@statewalker/db-duckdb-node':
         specifier: 'catalog:'
-        version: 0.2.0
+        version: 0.2.1
       '@statewalker/indexer-tests':
         specifier: workspace:^
         version: link:../indexer-tests
@@ -424,7 +424,7 @@ importers:
         version: 0.0.9(@electric-sql/pglite@0.5.16)
       '@statewalker/db-pglite':
         specifier: 'catalog:'
-        version: 0.3.0(@electric-sql/pglite@0.5.16)
+        version: 0.3.1(@electric-sql/pglite@0.5.16)
       '@statewalker/indexer-tests':
         specifier: workspace:^
         version: link:../indexer-tests
@@ -467,10 +467,10 @@ importers:
         version: 0.1.7
       '@statewalker/db-sqlite':
         specifier: 'catalog:'
-        version: 0.1.3
+        version: 0.1.4
       '@statewalker/db-sqlite-index':
         specifier: 'catalog:'
-        version: 0.1.3
+        version: 0.1.4
       '@statewalker/indexer-api':
         specifier: workspace:^
         version: link:../indexer-api
@@ -489,10 +489,10 @@ importers:
     devDependencies:
       '@statewalker/db-sqlite-do':
         specifier: 'catalog:'
-        version: 0.1.3
+        version: 0.1.4
       '@statewalker/db-sqlite-node':
         specifier: 'catalog:'
-        version: 0.3.3
+        version: 0.3.4
       '@statewalker/indexer-tests':
         specifier: workspace:^
         version: link:../indexer-tests
@@ -1150,27 +1150,27 @@ packages:
   '@statewalker/db-api@0.1.7':
     resolution: {integrity: sha512-pOrHF9vIseL4QgjK2voyHHJmKTV1MPaGo2MwWemVYTOZ0aQ8E3NP/IKCBh0gu+IjFY8FnPJ00FxafS0YxjwxVw==}
 
-  '@statewalker/db-duckdb-node@0.2.0':
-    resolution: {integrity: sha512-33Vy7gYDMH0PAcuxFy7I3Pg96OGV0V0baWVs/HbYU78Ta+aFi/xZ0Ep+sqmMnL8jn5e+qwGgGYptJ9rWFhknBQ==}
+  '@statewalker/db-duckdb-node@0.2.1':
+    resolution: {integrity: sha512-StU9HVmbmzqDYVTNvucuGQqI+lP0EyXgA4VvUSFWej+R8XR6/rmmjIgmB1c7oyfPukhkCrrrEqYgroW6tCV1mw==}
 
-  '@statewalker/db-pglite@0.3.0':
-    resolution: {integrity: sha512-CQ0cHMXZ0zLcXIWTmJDJjCi9WoLzvfZ7+ziuJIk/RJ+iZpTvQKsDjZgL8EQVf/w4YrYktIdSchTkrFbV1OpPhw==}
+  '@statewalker/db-pglite@0.3.1':
+    resolution: {integrity: sha512-mLKvUWTcKn0bzQ1hLI7PFKY8HQwcwswx9Jn6AUBD84WkV5sBenhVvRv7jql6fMGKtoTbIYLEGZVhZV/zt8cbmA==}
     peerDependencies:
       '@electric-sql/pglite': ^0.5.15
 
-  '@statewalker/db-sqlite-do@0.1.3':
-    resolution: {integrity: sha512-ZiFkGejE/PZyn9ExZlfQ5wxm9W54LpySp+GNx9pt2O5N3WQ5PvSHX6zaBN3+uAujTgVPJuaQctW0LQaSCkImaA==}
+  '@statewalker/db-sqlite-do@0.1.4':
+    resolution: {integrity: sha512-mYc6O3TRhziSfiJB/lW33Ei/5HiYnCHZ5XVZgZhPZH9AMpZB7ohQJSUAJRy60xIoxjNCTzLtlC/43VceQ4mU+Q==}
     engines: {node: '>=22.13'}
 
-  '@statewalker/db-sqlite-index@0.1.3':
-    resolution: {integrity: sha512-JTMoQFz/+yHQhYW+ZfF0Qe2jrtnmpluQCRSoOU4LAud+xfvfUK6rIbd56VHBR+RJtIWwp4I93oPGSWdcF9VGiA==}
+  '@statewalker/db-sqlite-index@0.1.4':
+    resolution: {integrity: sha512-RX+Lg8rzZQZDXMGZLzv8jAGKVWxP1X+YRtMMPUt2a8mXoE2Ed5Wu8cf1ztWyfbPR5SrcM9PvzTi9GH4OXjhmdQ==}
 
-  '@statewalker/db-sqlite-node@0.3.3':
-    resolution: {integrity: sha512-aI3aBXvOzziu6+txIvjMGtX6ZDCwVujrl2cE4vXXnQMz8aQShk+nX+KM6q2RbkuROEqI/zcAfT3mTpwKmEHX4Q==}
+  '@statewalker/db-sqlite-node@0.3.4':
+    resolution: {integrity: sha512-7qQ0KBB4QxxsngfBK6SUVAe0KR9+EET75X0giBJQaEh7zj23knrtlaZVBNf1UDw/l77o8EUZlV5J8MbCkxy3fw==}
     engines: {node: '>=22.13'}
 
-  '@statewalker/db-sqlite@0.1.3':
-    resolution: {integrity: sha512-5W31+6itaUGNO7x2bTClYf/BrK0kmuyPqJ1Z6Uoe4MhSgCGNbrjuTyC6UjVY0oC78+cFl9tqmSwv1wNhsfC7UA==}
+  '@statewalker/db-sqlite@0.1.4':
+    resolution: {integrity: sha512-Dao18BELfACyjXwlzHLzBSB7mJPGWwYb8xM2rFfTeYR5aVsn4nqie9zchKNhvSrVWspc3fWo9kbnY+MSt27n+A==}
 
   '@tybys/wasm-util@0.10.5':
     resolution: {integrity: sha512-dOGOPxlaNV+G046mZzN+9C0dAcQZeSKcXiVaM0TYy/LM4ttTmgSBDxYfovcYI8Em3+eAbiAYpvWLOv8+ZVRJKA==}
@@ -2757,34 +2757,34 @@ snapshots:
 
   '@statewalker/db-api@0.1.7': {}
 
-  '@statewalker/db-duckdb-node@0.2.0':
+  '@statewalker/db-duckdb-node@0.2.1':
     dependencies:
       '@duckdb/node-api': 1.5.5-r.5
       '@statewalker/db-api': 0.1.7
-      '@statewalker/db-sqlite': 0.1.3
+      '@statewalker/db-sqlite': 0.1.4
 
-  '@statewalker/db-pglite@0.3.0(@electric-sql/pglite@0.5.16)':
+  '@statewalker/db-pglite@0.3.1(@electric-sql/pglite@0.5.16)':
     dependencies:
       '@electric-sql/pglite': 0.5.16
       '@statewalker/db-api': 0.1.7
-      '@statewalker/db-sqlite': 0.1.3
+      '@statewalker/db-sqlite': 0.1.4
 
-  '@statewalker/db-sqlite-do@0.1.3':
+  '@statewalker/db-sqlite-do@0.1.4':
     dependencies:
       '@statewalker/db-api': 0.1.7
-      '@statewalker/db-sqlite': 0.1.3
+      '@statewalker/db-sqlite': 0.1.4
 
-  '@statewalker/db-sqlite-index@0.1.3':
+  '@statewalker/db-sqlite-index@0.1.4':
     dependencies:
       '@statewalker/db-api': 0.1.7
-      '@statewalker/db-sqlite': 0.1.3
+      '@statewalker/db-sqlite': 0.1.4
 
-  '@statewalker/db-sqlite-node@0.3.3':
+  '@statewalker/db-sqlite-node@0.3.4':
     dependencies:
       '@statewalker/db-api': 0.1.7
-      '@statewalker/db-sqlite': 0.1.3
+      '@statewalker/db-sqlite': 0.1.4
 
-  '@statewalker/db-sqlite@0.1.3':
+  '@statewalker/db-sqlite@0.1.4':
     dependencies:
       '@statewalker/db-api': 0.1.7
 
